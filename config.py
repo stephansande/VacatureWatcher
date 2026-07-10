@@ -1,3 +1,4 @@
+```python
 import os
 
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ class Config:
 
     SECRET_KEY = os.getenv(
         "SECRET_KEY",
-        "change-this"
+        "development-key"
     )
 
 
@@ -113,3 +114,4 @@ class Config:
         "TELEGRAM_CHAT_ID",
         ""
     )
+```

@@ -1,0 +1,100 @@
+```html
+<!DOCTYPE html>
+<html lang="nl">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>
+        VacatureWatcher Login
+    </title>
+
+</head>
+
+
+<body>
+
+
+<h2>
+    VacatureWatcher
+</h2>
+
+
+<h3>
+    Inloggen
+</h3>
+
+
+
+{% if error %}
+
+<p style="color:red;">
+    {{ error }}
+</p>
+
+{% endif %}
+
+
+
+<form method="post">
+
+
+    <div>
+
+        <label for="username">
+            Gebruikersnaam
+        </label>
+
+        <br>
+
+        <input
+            id="username"
+            type="text"
+            name="username"
+            autocomplete="username"
+            required
+        >
+
+    </div>
+
+
+    <br>
+
+
+    <div>
+
+        <label for="password">
+            Wachtwoord
+        </label>
+
+        <br>
+
+        <input
+            id="password"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+        >
+
+    </div>
+
+
+    <br>
+
+
+    <button type="submit">
+        Login
+    </button>
+
+
+</form>
+
+
+</body>
+
+</html>
+```
