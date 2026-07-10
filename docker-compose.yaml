@@ -1,0 +1,27 @@
+services:
+
+  vacaturewatcher:
+
+    container_name: vacaturewatcher
+
+    build:
+      context: .
+
+    restart: unless-stopped
+
+
+    ports:
+
+      - "1276:5000"
+
+
+
+    volumes:
+
+      - ./data:/app/data
+
+
+
+    env_file:
+
+      - .env

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+
+{% block content %}
+
+
+<h1>
+Vacatures {{ employer.name }}
+</h1>
+
+
+<table>
+
+
+<tr>
+
+<th>
+Titel
+</th>
+
+<th>
+Status
+</th>
+
+<th>
+Eerste gezien
+</th>
+
+</tr>
+
+
+
+{% for vacancy in employer.vacancies %}
+
+
+<tr>
+
+<td>
+
+{% if vacancy.url %}
+
+<a href="{{ vacancy.url }}"
+target="_blank">
+
+{{ vacancy.title }}
+
+</a>
+
+{% else %}
+
+{{ vacancy.title }}
+
+{% endif %}
+
+</td>
+
+
+<td>
+
+{% if vacancy.active %}
+
+Actief
+
+{% else %}
+
+Verwijderd
+
+{% endif %}
+
+
+</td>
+
+
+<td>
+
+{{ vacancy.first_seen }}
+
+</td>
+
+
+</tr>
+
+
+{% endfor %}
+
+
+</table>
+
+
+{% endblock %}

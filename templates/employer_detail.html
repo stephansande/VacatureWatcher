@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+{{ employer.name }}
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+{{ employer.name }}
+</h1>
+
+
+
+<h2>
+Werkgever informatie
+</h2>
+
+
+<table>
+
+
+<tr>
+
+<td>
+Vacaturepagina
+</td>
+
+<td>
+
+<a href="{{ employer.url }}"
+target="_blank">
+
+{{ employer.url }}
+
+</a>
+
+</td>
+
+</tr>
+
+
+
+<tr>
+
+<td>
+Controle interval
+</td>
+
+<td>
+
+{% if employer.check_interval == "daily" %}
+
+Dagelijks
+
+{% elif employer.check_interval == "weekly" %}
+
+Wekelijks
+
+{% elif employer.check_interval == "disabled" %}
+
+Uitgeschakeld
+
+{% else %}
+
+Onbekend
+
+{% endif %}
+
+</td>
+
+</tr>
+
+
+
+<tr>
+
+<td>
+Zoekwoorden
+</td>
+
+<td>
+
+{{ employer.keywords or "Geen filter ingesteld" }}
+
+</td>
+
+</tr>
+
+
+
+<tr>
+
+<td>
+Laatste controle
+</td>
+
+<td>
+
+{{ employer.last_check or "Nog niet gecontroleerd" }}
+
+</td>
+
+</tr>
+
+
+
+<tr>
+
+<td>
+Laatste wijziging
+</td>
+
+<td>
+
+{{ employer.last_change or "Geen wijzigingen" }}
+
+</td>
+
+</tr>
+
+
+
+<tr>
+
+<td>
+Actieve vacatures
+</td>
+
+<td>
+
+{{ employer.vacancies
+   | selectattr("active")
+   | list
+   | length }}
+
+</td>
+
+</tr>
+
+
+</table>
+
+
+
+<br><br>
+
+
+
+<h2>
+Acties
+</h2>
+
+
+<a class="button"
+href="/employer/{{ employer.id }}/check">
+
+Nu controleren
+
+</a>
+
+
+
+<a class="button"
+href="/employer/{{ employer.id }}/vacancies">
+
+Bekijk vacatures
+
+</a>
+
+
+
+<a class="button"
+href="/employer/{{ employer.id }}/edit">
+
+Wijzigen
+
+</a>
+
+
+
+<a class="button"
+href="/employer/{{ employer.id }}/delete"
+onclick="return confirm('Werkgever en alle historie verwijderen?');">
+
+Verwijderen
+
+</a>
+
+
+
+<br><br>
+
+
+
+<h2>
+Wijzigingshistorie
+</h2>
+
+
+
+{% if logs %}
+
+
+
+<table>
+
+
+<tr>
+
+<th>
+Datum
+</th>
+
+<th>
+Type
+</th>
+
+<th>
+Bericht
+</th>
+
+</tr>
+
+
+
+{% for log in logs %}
+
+
+<tr>
+
+
+<td>
+
+{{ log.created_at }}
+
+</td>
+
+
+<td>
+
+{{ log.change_type }}
+
+</td>
+
+
+<td>
+
+<pre>
+{{ log.message }}
+</pre>
+
+</td>
+
+
+</tr>
+
+
+{% endfor %}
+
+
+</table>
+
+
+
+{% else %}
+
+
+<p>
+Nog geen wijzigingen geregistreerd.
+</p>
+
+
+{% endif %}
+
+
+
+{% endblock %}

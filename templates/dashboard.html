@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Dashboard
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+Werkgevers
+</h1>
+
+
+<a class="button"
+   href="/employer/add">
+
+Nieuwe werkgever
+
+</a>
+
+
+<br><br>
+
+
+{% if employers %}
+
+
+<table>
+
+
+<tr>
+
+<th>
+Werkgever
+</th>
+
+<th>
+Status
+</th>
+
+<th>
+Laatste controle
+</th>
+
+<th>
+Acties
+</th>
+
+</tr>
+
+
+
+{% for employer in employers %}
+
+
+<tr>
+
+
+<td>
+
+<a href="/employer/{{ employer.id }}">
+
+{{ employer.name }}
+
+</a>
+
+</td>
+
+
+
+<td>
+
+{% if employer.enabled %}
+
+🟢 Actief
+
+{% else %}
+
+🔴 Uitgeschakeld
+
+{% endif %}
+
+
+</td>
+
+
+
+<td>
+
+{{ employer.last_check or "Nog niet gecontroleerd" }}
+
+</td>
+
+
+
+<td>
+
+
+<a class="button"
+href="/employer/{{ employer.id }}/check">
+
+Controle
+
+</a>
+
+
+</td>
+
+
+</tr>
+
+
+{% endfor %}
+
+
+</table>
+
+
+
+{% else %}
+
+
+<p>
+Nog geen werkgevers toegevoegd.
+</p>
+
+
+{% endif %}
+
+
+
+{% endblock %}
