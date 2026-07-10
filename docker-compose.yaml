@@ -1,11 +1,14 @@
+```yaml
 services:
 
   vacaturewatcher:
 
     container_name: vacaturewatcher
 
+
     build:
       context: .
+
 
     restart: unless-stopped
 
@@ -25,3 +28,10 @@ services:
     env_file:
 
       - .env
+
+
+
+    environment:
+
+      TZ: Europe/Amsterdam
+```
