@@ -46,4 +46,3 @@ CMD [
     "python",
     "app.py"
 ]
-```
