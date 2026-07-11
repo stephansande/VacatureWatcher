@@ -107,4 +107,3 @@ def create_admin_user():
     print(
         f"Admin gebruiker '{username}' aangemaakt"
     )
-```
