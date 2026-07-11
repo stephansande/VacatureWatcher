@@ -122,4 +122,3 @@ def logout():
             "auth.login"
         )
     )
-```
