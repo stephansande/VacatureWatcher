@@ -24,7 +24,7 @@ class Config:
 
     DATABASE_PATH = os.getenv(
         "DATABASE_PATH",
-        "data/vacaturewatcher.db"
+        "/app/data/vacaturewatcher.db"
     )
 
 
