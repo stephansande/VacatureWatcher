@@ -113,4 +113,3 @@ class Config:
         "TELEGRAM_CHAT_ID",
         ""
     )
-```
