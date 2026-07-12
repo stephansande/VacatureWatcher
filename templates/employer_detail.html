@@ -12,16 +12,42 @@
 
 <h1>
 {{ employer.name }}
+{% if employer.type == "jobboard" %}
+<span class="badge badge-jobboard">vacaturesite</span>
+{% else %}
+<span class="badge badge-employer">werkgever</span>
+{% endif %}
 </h1>
 
 
 
 <h2>
-Werkgever informatie
+{% if employer.type == "jobboard" %}Bron informatie{% else %}Werkgever informatie{% endif %}
 </h2>
 
 
 <table>
+
+
+{% if employer.type == "jobboard" %}
+<tr>
+<td>
+Adapter
+</td>
+<td>
+<code>{{ employer.adapter }}</code>
+</td>
+</tr>
+
+<tr>
+<td>
+Settings
+</td>
+<td>
+<pre>{{ employer.settings or "(geen)" }}</pre>
+</td>
+</tr>
+{% endif %}
 
 
 <tr>

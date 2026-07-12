@@ -11,7 +11,7 @@ Dashboard
 
 
 <h1>
-Werkgevers
+Bronnen
 </h1>
 
 
@@ -19,6 +19,13 @@ Werkgevers
    href="/employer/add">
 
 Nieuwe werkgever
+
+</a>
+
+<a class="button"
+   href="/source/jobboard/add">
+
+Nieuwe vacaturesite
 
 </a>
 
@@ -35,7 +42,15 @@ Nieuwe werkgever
 <tr>
 
 <th>
-Werkgever
+Naam
+</th>
+
+<th>
+Type
+</th>
+
+<th>
+Adapter
 </th>
 
 <th>
@@ -70,6 +85,22 @@ Acties
 
 </td>
 
+
+
+<td>
+
+{% if employer.type == "jobboard" %}
+<span class="badge badge-jobboard">vacaturesite</span>
+{% else %}
+<span class="badge badge-employer">werkgever</span>
+{% endif %}
+
+</td>
+
+
+<td>
+<code>{{ employer.adapter }}</code>
+</td>
 
 
 <td>
@@ -125,7 +156,7 @@ Controle
 
 
 <p>
-Nog geen werkgevers toegevoegd.
+Nog geen bronnen toegevoegd.
 </p>
 
 

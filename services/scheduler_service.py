@@ -6,11 +6,11 @@ from apscheduler.schedulers.background import (
 )
 
 
-from models import Employer
+from models import Source
 
 
 from services.vacancy_checker import (
-    check_employer
+    check_source
 )
 
 
@@ -25,7 +25,7 @@ def run_checks(app):
     with app.app_context():
 
 
-        employers = Employer.query.filter_by(
+        employers = Source.query.filter_by(
             enabled=True
         ).all()
 
@@ -36,7 +36,7 @@ def run_checks(app):
 
             if employer.check_interval == "daily":
 
-                check_employer(
+                check_source(
                     employer
                 )
 
@@ -47,7 +47,7 @@ def run_checks(app):
 
                 if datetime.now().weekday() == 0:
 
-                    check_employer(
+                    check_source(
                         employer
                     )
 

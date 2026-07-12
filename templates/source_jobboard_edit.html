@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+{{ source.name }} wijzigen
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+{{ source.name }} wijzigen
+<span class="badge badge-jobboard">vacaturesite</span>
+</h1>
+
+<p class="muted">
+Pas de URL aan en klik op "Hertest" om de Adapter Helper opnieuw te
+laten kijken (bijvoorbeeld na een redesign van de site), of pas de
+adapter/settings direct handmatig aan.
+</p>
+
+
+{% if error %}
+<p style="color: #b91c1c;">
+{{ error }}
+</p>
+{% endif %}
+
+
+<form method="post">
+
+<input type="hidden" name="analysis_json" value='{{ analysis | tojson if analysis else "" }}'>
+
+
+<label>
+Naam
+</label>
+<br>
+<input type="text" name="name" value="{{ form.name }}" required>
+
+<br><br>
+
+
+<label>
+URL
+</label>
+<br>
+<input type="url" name="url" size="80" value="{{ form.url }}" required>
+
+<br><br>
+
+<button class="button" type="submit" name="action" value="analyze">
+Hertest (Adapter Helper)
+</button>
+
+<br><br>
+
+
+{% if analysis %}
+
+{% if analysis.fetch_error %}
+
+<div class="result-box">
+<h4>
+Kon de pagina niet ophalen
+</h4>
+<p>
+{{ analysis.fetch_error }}
+</p>
+</div>
+
+{% else %}
+
+<h2>
+Resultaten
+</h2>
+
+
+<div class="result-box {% if analysis.recommendation == 'jsonld_listing' %}recommended{% endif %}">
+<h4>
+1. JSON-LD &mdash; adapter <code>jsonld_listing</code>
+{% if analysis.recommendation == 'jsonld_listing' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.jsonld %}
+<p>{{ analysis.jsonld.count }} vacature(s) gevonden.</p>
+<ul>
+{% for item in analysis.jsonld.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+<button class="button" type="submit" name="action" value="apply:jsonld_listing">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">Niets gevonden.</p>
+{% endif %}
+</div>
+
+
+<div class="result-box {% if analysis.recommendation == 'html_listing' %}recommended{% endif %}">
+<h4>
+2. Herhalend HTML-blok &mdash; adapter <code>html_listing</code>
+{% if analysis.recommendation == 'html_listing' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.html_listing %}
+<p>
+{{ analysis.html_listing.total_matches }} blokken via
+<code>{{ analysis.html_listing.item_selector }}</code> /
+<code>{{ analysis.html_listing.title_selector }}</code>.
+</p>
+<ul>
+{% for item in analysis.html_listing.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+<button class="button" type="submit" name="action" value="apply:html_listing">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">Niets overtuigends gevonden.</p>
+{% endif %}
+</div>
+
+
+<div class="result-box {% if analysis.recommendation == 'generic_links' %}recommended{% endif %}">
+<h4>
+3. Generieke links &mdash; adapter <code>generic_links</code>
+{% if analysis.recommendation == 'generic_links' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.generic_links %}
+<p>{{ analysis.generic_links.count }} links gevonden.</p>
+<ul>
+{% for item in analysis.generic_links.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+<button class="button" type="submit" name="action" value="apply:generic_links">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">Niets gevonden.</p>
+{% endif %}
+</div>
+
+{% endif %}
+
+{% endif %}
+
+
+<hr>
+
+
+<label>
+Adapter
+</label>
+<br>
+<select name="adapter">
+<option value="generic_links" {% if form.adapter == "generic_links" %}selected{% endif %}>generic_links</option>
+<option value="html_listing" {% if form.adapter == "html_listing" %}selected{% endif %}>html_listing</option>
+<option value="jsonld_listing" {% if form.adapter == "jsonld_listing" %}selected{% endif %}>jsonld_listing</option>
+<option value="cso_api" {% if form.adapter == "cso_api" %}selected{% endif %}>cso_api</option>
+</select>
+
+<br><br>
+
+
+<label>
+Settings (JSON)
+</label>
+<br>
+<textarea name="settings" rows="10">{{ form.settings }}</textarea>
+
+<p class="muted">
+Zie adapters/EXAMPLES.md voor de vorm per adapter.
+</p>
+
+<br><br>
+
+
+<label>
+Zoekwoorden (include-filter, optioneel/legacy)
+</label>
+<br>
+<input type="text" name="keywords" size="80" value="{{ form.keywords }}">
+
+<br><br>
+
+
+<label>
+Controle interval
+</label>
+<br>
+<select name="check_interval">
+<option value="daily" {% if form.check_interval == "daily" %}selected{% endif %}>Dagelijks</option>
+<option value="weekly" {% if form.check_interval == "weekly" %}selected{% endif %}>Wekelijks</option>
+<option value="disabled" {% if form.check_interval == "disabled" %}selected{% endif %}>Uitgeschakeld</option>
+</select>
+
+<br><br><br>
+
+
+<button class="button" type="submit" name="action" value="save">
+Opslaan
+</button>
+
+<a class="button" href="/employer/{{ source.id }}">
+Annuleren
+</a>
+
+
+</form>
+
+
+<hr>
+
+
+<h3>
+Vacaturesite verwijderen
+</h3>
+
+<p>
+Let op: hiermee worden ook de opgeslagen vacatures en historie verwijderd.
+</p>
+
+<a class="button"
+href="/employer/{{ source.id }}/delete"
+onclick="return confirm('Vacaturesite en historie verwijderen?');">
+Verwijderen
+</a>
+
+
+{% endblock %}
