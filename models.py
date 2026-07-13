@@ -106,6 +106,28 @@ class Source(db.Model):
         nullable=True
     )
 
+    last_success = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+    # tijdstip van de laatste GESLAAGDE controle (in tegenstelling tot
+    # last_check hierboven, dat ook bijgewerkt wordt bij een mislukte
+    # controle)
+
+    last_error = db.Column(
+        db.Text,
+        nullable=True
+    )
+    # foutmelding van de laatste mislukte controle, of NULL als de
+    # laatste controle geslaagd is
+
+    last_new_count = db.Column(
+        db.Integer,
+        nullable=True
+    )
+    # aantal nieuwe vacatures gevonden tijdens de laatste geslaagde
+    # controle
+
 
     pages = db.relationship(
         "VacancyPage",

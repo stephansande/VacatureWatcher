@@ -16,6 +16,13 @@ Een adapter levert altijd een lijst van dicts met dezelfde drie velden:
 import json
 import time
 
+from bs4 import BeautifulSoup
+
+from scraper import fetch_html
+
+
+DEFAULT_MAX_ITEMS = 50
+
 
 class AdapterError(Exception):
     """Generieke fout die een adapter mag opgooien bij een mislukte check."""
@@ -135,3 +142,99 @@ def polite_sleep(seconds):
 
     if seconds and seconds > 0:
         time.sleep(seconds)
+
+
+def fetch_listing_pages(start_url, settings, crawl_delay):
+    """
+    Haalt één of meerdere pagina's van een listing/zoekpagina op,
+    volgens settings.pagination (indien aanwezig). Gedeeld door
+    jsonld_listing.py en microdata_listing.py, die beide dezelfde
+    "listing" vs "detail" mode-structuur hebben.
+    """
+
+    pagination = settings.get("pagination")
+
+    if not pagination:
+        return [{"url": start_url, "html": fetch_html(start_url)}]
+
+    url_pattern = require(pagination, "url_pattern", "pagination")
+    max_pages = pagination.get("max_pages", 1)
+
+    pages = []
+
+    for page_number in range(1, max_pages + 1):
+
+        page_url = url_pattern.format(page=page_number)
+        pages.append({"url": page_url, "html": fetch_html(page_url)})
+
+        if page_number < max_pages:
+            polite_sleep(crawl_delay)
+
+    return pages
+
+
+def fetch_detail_pages(listing_pages, settings, crawl_delay, source_name):
+    """
+    Volgt links (settings.link_selector) van listing-pagina's naar
+    aparte detailpagina's en haalt die één voor één op (met
+    crawl_delay ertussen), begrensd door settings.max_items.
+    Gedeeld door jsonld_listing.py en microdata_listing.py.
+    """
+
+    from urllib.parse import urljoin
+
+    link_selector = require(settings, "link_selector", source_name)
+    max_items = settings.get("max_items", DEFAULT_MAX_ITEMS)
+
+    detail_urls = []
+    seen = set()
+
+    for page in listing_pages:
+
+        soup = BeautifulSoup(page["html"], "lxml")
+
+        for link in soup.select(link_selector):
+
+            href = link.get("href")
+
+            if not href:
+                continue
+
+            absolute_url = urljoin(page["url"], href)
+
+            if absolute_url not in seen:
+                seen.add(absolute_url)
+                detail_urls.append(absolute_url)
+
+    detail_urls = detail_urls[:max_items]
+
+    detail_pages = []
+
+    for index, detail_url in enumerate(detail_urls):
+
+        detail_pages.append({
+            "url": detail_url,
+            "html": fetch_html(detail_url),
+        })
+
+        if index < len(detail_urls) - 1:
+            polite_sleep(crawl_delay)
+
+    return detail_pages
+
+
+def remove_duplicate_vacancies(vacancies):
+    """Filtert dubbele vacatures op url (behoudt volgorde)."""
+
+    seen = set()
+    result = []
+
+    for vacancy in vacancies:
+
+        key = vacancy["url"]
+
+        if key not in seen:
+            seen.add(key)
+            result.append(vacancy)
+
+    return result

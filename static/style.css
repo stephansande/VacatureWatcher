@@ -190,6 +190,22 @@ textarea {
 }
 
 
+.result-box.status-ok {
+
+    border-color: #16a34a;
+    background: #f0fdf4;
+
+}
+
+
+.result-box.status-error {
+
+    border-color: #b91c1c;
+    background: #fef2f2;
+
+}
+
+
 .result-box h4 {
     margin-top: 0;
 }

@@ -46,6 +46,22 @@ API_BASE = "https://api.cso20.net/v1/JobAPI"
 TIMEOUT = 30
 
 
+CAPABILITIES = {
+    "label": "CSO Vacature-API (Werken voor Nederland)",
+    "supports_pagination": False,
+    "supports_categories": True,
+    "supports_detail_pages": False,
+    # de API kan wel locatie/datum leveren (we vragen het al op via
+    # fieldSelection.jobFeatures.location), maar parse() extraheert dit
+    # nog niet -- ik verifieer de exacte structuur van jobFeatures.location
+    # liever eerst tegen de echte sandbox-API dan een veldpad te gokken,
+    # dus zet deze twee bewust op False totdat dat bevestigd is.
+    "supports_dates": False,
+    "supports_location": False,
+    "requires_credentials": True,
+}
+
+
 def fetch(source):
 
     settings = load_settings(source)

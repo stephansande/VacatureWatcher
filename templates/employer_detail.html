@@ -13,31 +13,72 @@
 <h1>
 {{ employer.name }}
 {% if employer.type == "jobboard" %}
-<span class="badge badge-jobboard">vacaturesite</span>
+<span class="badge badge-jobboard">Vacatureplatform</span>
 {% else %}
-<span class="badge badge-employer">werkgever</span>
+<span class="badge badge-employer">Werkgever</span>
 {% endif %}
 </h1>
 
 
 
 <h2>
-{% if employer.type == "jobboard" %}Bron informatie{% else %}Werkgever informatie{% endif %}
+Bronstatus
+</h2>
+
+
+<div class="result-box {% if employer.last_error %}status-error{% else %}status-ok{% endif %}">
+
+<table>
+
+<tr>
+<td>Laatste controle</td>
+<td>{{ employer.last_check or "Nog niet gecontroleerd" }}</td>
+</tr>
+
+<tr>
+<td>Laatste succesvolle controle</td>
+<td>{{ employer.last_success or "Nog niet gelukt" }}</td>
+</tr>
+
+<tr>
+<td>Vacatures gevonden</td>
+<td>{{ employer.vacancies | selectattr("active") | list | length }}</td>
+</tr>
+
+<tr>
+<td>Nieuwe vacatures (laatste succesvolle controle)</td>
+<td>{{ employer.last_new_count if employer.last_new_count is not none else "-" }}</td>
+</tr>
+
+<tr>
+<td>Adapter</td>
+<td><code>{{ employer.adapter }}</code></td>
+</tr>
+
+<tr>
+<td>Laatste fout</td>
+<td>
+{% if employer.last_error %}
+<span style="color:#b91c1c;">{{ employer.last_error }}</span>
+{% else %}
+geen
+{% endif %}
+</td>
+</tr>
+
+</table>
+
+</div>
+
+
+
+<h2>
+Bron informatie
 </h2>
 
 
 <table>
 
-
-{% if employer.type == "jobboard" %}
-<tr>
-<td>
-Adapter
-</td>
-<td>
-<code>{{ employer.adapter }}</code>
-</td>
-</tr>
 
 <tr>
 <td>
@@ -47,7 +88,7 @@ Settings
 <pre>{{ employer.settings or "(geen)" }}</pre>
 </td>
 </tr>
-{% endif %}
+
 
 
 <tr>
@@ -122,47 +163,12 @@ Zoekwoorden
 <tr>
 
 <td>
-Laatste controle
-</td>
-
-<td>
-
-{{ employer.last_check or "Nog niet gecontroleerd" }}
-
-</td>
-
-</tr>
-
-
-
-<tr>
-
-<td>
 Laatste wijziging
 </td>
 
 <td>
 
 {{ employer.last_change or "Geen wijzigingen" }}
-
-</td>
-
-</tr>
-
-
-
-<tr>
-
-<td>
-Actieve vacatures
-</td>
-
-<td>
-
-{{ employer.vacancies
-   | selectattr("active")
-   | list
-   | length }}
 
 </td>
 
@@ -190,6 +196,14 @@ Nu controleren
 </a>
 
 
+<a class="button"
+href="/employer/{{ employer.id }}/test">
+
+Bron testen
+
+</a>
+
+
 
 <a class="button"
 href="/employer/{{ employer.id }}/vacancies">
@@ -211,11 +225,64 @@ Wijzigen
 
 <a class="button"
 href="/employer/{{ employer.id }}/delete"
-onclick="return confirm('Werkgever en alle historie verwijderen?');">
+onclick="return confirm('Bron en alle historie verwijderen?');">
 
 Verwijderen
 
 </a>
+
+
+<p class="muted">
+"Bron testen" haalt live op wat de adapter nu zou vinden (max. 5
+getoond), zonder iets op te slaan of te notificeren -- handig om een
+nieuwe configuratie te checken zonder een volledige controle te
+starten. "Nu controleren" voert de ECHTE scan uit, inclusief opslaan
+en notificaties.
+</p>
+
+
+
+{% if test_result %}
+
+<div class="result-box {% if test_result.error %}status-error{% else %}status-ok{% endif %}">
+
+<h4>
+Testresultaat
+</h4>
+
+{% if test_result.error %}
+
+<p style="color:#b91c1c;">
+{{ test_result.error }}
+</p>
+
+{% else %}
+
+<p>
+{{ test_result.count }} vacature(s) gevonden (na eventuele
+zoekwoord-filtering). Eerste {{ test_result.preview | length }} hieronder:
+</p>
+
+<ul>
+{% for item in test_result.preview %}
+<li>
+<a href="{{ item.url }}" target="_blank">{{ item.title }}</a>
+</li>
+{% endfor %}
+</ul>
+
+{% if test_result.count == 0 %}
+<p class="muted">
+Geen vacatures gevonden -- controleer de adapter/settings, of test
+opnieuw met de Adapter Helper op de bron-editpagina.
+</p>
+{% endif %}
+
+{% endif %}
+
+</div>
+
+{% endif %}
 
 
 

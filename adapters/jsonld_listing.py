@@ -41,12 +41,24 @@ import json
 
 from bs4 import BeautifulSoup
 
-from scraper import fetch_html
+from adapters.base import (
+    load_settings,
+    fetch_listing_pages,
+    fetch_detail_pages,
+    remove_duplicate_vacancies,
+    AdapterError,
+)
 
-from adapters.base import load_settings, require, polite_sleep, AdapterError
 
-
-DEFAULT_MAX_ITEMS = 50
+CAPABILITIES = {
+    "label": "JSON-LD (schema.org JobPosting)",
+    "supports_pagination": True,
+    "supports_categories": False,
+    "supports_detail_pages": True,
+    "supports_dates": True,
+    "supports_location": True,
+    "requires_credentials": False,
+}
 
 
 def fetch(source):
@@ -57,13 +69,13 @@ def fetch(source):
     start_url = settings.get("start_url") or source.url
     crawl_delay = settings.get("crawl_delay", 0)
 
-    listing_pages = _fetch_listing_pages(start_url, settings, crawl_delay)
+    listing_pages = fetch_listing_pages(start_url, settings, crawl_delay)
 
     if mode == "listing":
         return listing_pages
 
     if mode == "detail":
-        return _fetch_detail_pages(listing_pages, start_url, settings, crawl_delay)
+        return fetch_detail_pages(listing_pages, settings, crawl_delay, source.name)
 
     raise AdapterError(
         f"'{source.name}': onbekende jsonld_listing mode '{mode}' "
@@ -89,78 +101,57 @@ def parse(raw_pages, source):
             url = job.get("url") or page["url"]
             description = _strip_html(job.get("description", ""))
 
+            content_parts = [description or title]
+
+            location = _extract_location(job.get("jobLocation"))
+            if location:
+                content_parts.append(location)
+
+            date_posted = job.get("datePosted")
+            if date_posted:
+                content_parts.append(str(date_posted))
+
             vacancies.append({
                 "title": title,
                 "url": urljoin(page["url"], url),
-                "content": description or title,
+                "content": " | ".join(content_parts),
             })
 
-    return _remove_duplicates(vacancies)
+    return remove_duplicate_vacancies(vacancies)
 
 
-def _fetch_listing_pages(start_url, settings, crawl_delay):
+def _extract_location(job_location):
+    """
+    schema.org JobLocation is meestal een Place-object met een
+    "address" (PostalAddress), maar kan ook een lijst van Places zijn
+    (meerdere vestigingen). We pakken de plaatsnaam (addressLocality)
+    van de eerste bruikbare entry.
+    """
 
-    pagination = settings.get("pagination")
+    if not job_location:
+        return None
 
-    if not pagination:
-        return [{"url": start_url, "html": fetch_html(start_url)}]
+    if isinstance(job_location, list):
+        for entry in job_location:
+            location = _extract_location(entry)
+            if location:
+                return location
+        return None
 
-    url_pattern = pagination["url_pattern"]
-    max_pages = pagination.get("max_pages", 1)
+    if not isinstance(job_location, dict):
+        return None
 
-    pages = []
+    address = job_location.get("address")
 
-    for page_number in range(1, max_pages + 1):
+    if isinstance(address, dict):
+        locality = address.get("addressLocality")
+        if locality:
+            return str(locality)
 
-        page_url = url_pattern.format(page=page_number)
-        pages.append({"url": page_url, "html": fetch_html(page_url)})
+    if isinstance(address, str):
+        return address
 
-        if page_number < max_pages:
-            polite_sleep(crawl_delay)
-
-    return pages
-
-
-def _fetch_detail_pages(listing_pages, start_url, settings, crawl_delay):
-
-    link_selector = require(settings, "link_selector", "jsonld_listing (mode=detail)")
-    max_items = settings.get("max_items", DEFAULT_MAX_ITEMS)
-
-    detail_urls = []
-    seen = set()
-
-    for page in listing_pages:
-
-        soup = BeautifulSoup(page["html"], "lxml")
-
-        for link in soup.select(link_selector):
-
-            href = link.get("href")
-
-            if not href:
-                continue
-
-            absolute_url = urljoin(page["url"], href)
-
-            if absolute_url not in seen:
-                seen.add(absolute_url)
-                detail_urls.append(absolute_url)
-
-    detail_urls = detail_urls[:max_items]
-
-    detail_pages = []
-
-    for index, detail_url in enumerate(detail_urls):
-
-        detail_pages.append({
-            "url": detail_url,
-            "html": fetch_html(detail_url),
-        })
-
-        if index < len(detail_urls) - 1:
-            polite_sleep(crawl_delay)
-
-    return detail_pages
+    return None
 
 
 def extract_job_postings(html):
@@ -229,19 +220,3 @@ def _strip_html(text):
         return ""
 
     return BeautifulSoup(text, "lxml").get_text(" ", strip=True)
-
-
-def _remove_duplicates(vacancies):
-
-    seen = set()
-    result = []
-
-    for vacancy in vacancies:
-
-        key = vacancy["url"]
-
-        if key not in seen:
-            seen.add(key)
-            result.append(vacancy)
-
-    return result

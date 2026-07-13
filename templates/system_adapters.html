@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Systeem &raquo; Adapters
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+Systeem &raquo; Adapters
+</h1>
+
+<p class="muted">
+Overzicht van alle beschikbare adapters, wat ze ondersteunen, en
+hoeveel bronnen elke adapter momenteel gebruiken.
+</p>
+
+
+{% for adapter in adapters %}
+
+<div class="result-box">
+
+<h3>
+<code>{{ adapter.name }}</code> &mdash; {{ adapter.label }}
+</h3>
+
+<p>
+{{ adapter.description }}
+</p>
+
+<p>
+
+<span class="badge {% if adapter.capabilities.supports_pagination %}badge-jobboard{% else %}badge-employer{% endif %}">
+Paginering: {{ "ja" if adapter.capabilities.supports_pagination else "nee" }}
+</span>
+&nbsp;
+
+<span class="badge {% if adapter.capabilities.supports_categories %}badge-jobboard{% else %}badge-employer{% endif %}">
+Categorieën: {{ "ja" if adapter.capabilities.supports_categories else "nee" }}
+</span>
+&nbsp;
+
+<span class="badge {% if adapter.capabilities.supports_detail_pages %}badge-jobboard{% else %}badge-employer{% endif %}">
+Detailpagina's: {{ "ja" if adapter.capabilities.supports_detail_pages else "nee" }}
+</span>
+&nbsp;
+
+<span class="badge {% if adapter.capabilities.supports_dates %}badge-jobboard{% else %}badge-employer{% endif %}">
+Datum: {{ "ja" if adapter.capabilities.supports_dates else "nee" }}
+</span>
+&nbsp;
+
+<span class="badge {% if adapter.capabilities.supports_location %}badge-jobboard{% else %}badge-employer{% endif %}">
+Locatie: {{ "ja" if adapter.capabilities.supports_location else "nee" }}
+</span>
+&nbsp;
+
+<span class="badge {% if adapter.capabilities.requires_credentials %}status-error{% else %}badge-employer{% endif %}">
+Account nodig: {{ "ja" if adapter.capabilities.requires_credentials else "nee" }}
+</span>
+
+</p>
+
+<p class="muted">
+Gebruikt door {{ adapter.source_count }} bron{% if adapter.source_count != 1 %}nen{% endif %}.
+</p>
+
+</div>
+
+{% endfor %}
+
+
+{% endblock %}

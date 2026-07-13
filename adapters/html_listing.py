@@ -51,6 +51,17 @@ from scraper import fetch_html
 from adapters.base import load_settings, require, polite_sleep, AdapterError
 
 
+CAPABILITIES = {
+    "label": "HTML-lijstpagina (CSS-selectors)",
+    "supports_pagination": True,
+    "supports_categories": True,
+    "supports_detail_pages": False,
+    "supports_dates": True,
+    "supports_location": True,
+    "requires_credentials": False,
+}
+
+
 def fetch(source):
 
     settings = load_settings(source)

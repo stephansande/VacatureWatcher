@@ -61,6 +61,14 @@ def check_source(source):
         )
 
         db.session.add(log)
+
+        # ook bij een mislukte controle bijwerken -- anders lijkt een
+        # bron die al weken faalt op het dashboard nog "recent
+        # gecontroleerd", puur omdat de laatste GESLAAGDE poging lang
+        # geleden was
+        source.last_check = datetime.utcnow()
+        source.last_error = str(error)
+
         db.session.commit()
 
         notify("Fout bij vacature-check", message)
@@ -152,6 +160,9 @@ def check_source(source):
 
 
     source.last_check = datetime.utcnow()
+    source.last_success = datetime.utcnow()
+    source.last_error = None
+    source.last_new_count = len(new)
 
 
 

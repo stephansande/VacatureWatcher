@@ -56,6 +56,28 @@ Let op: mode "detail" doet één request per vacature, dus houd
 `max_items` en `crawl_delay` in de gaten voordat je een site
 "bombardeert".
 
+## Sites met schema.org microdata (adapter: `microdata_listing`)
+
+Een tweede manier waarop schema.org-data voorkomt: niet als los
+`<script>`-blok, maar direct als HTML-attributen op de bestaande
+elementen (`itemscope`, `itemtype="https://schema.org/JobPosting"`,
+`itemprop="title"` etc.). Check via "Inspecteren" of je `itemtype`
+met "JobPosting" erin tegenkomt in de HTML-broncode.
+
+Zelfde configuratievorm als `jsonld_listing` (ook met "listing"/
+"detail"-mode):
+```json
+{
+  "start_url": "https://voorbeeld.nl/vacatures/",
+  "mode": "listing",
+  "crawl_delay": 5
+}
+```
+
+De Adapter Helper probeert dit automatisch als tweede optie (na
+JSON-LD, vóór html_listing) -- meestal hoef je dit dus niet handmatig
+te configureren.
+
 ## Werken bij Gemeenten, Culturele Vacatures, Werken voor Cultuur,
 ## OneWorld, Nationale Vacaturebank (adapter: `html_listing`)
 

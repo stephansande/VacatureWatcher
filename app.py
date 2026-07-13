@@ -33,7 +33,12 @@ from services.vacancy_checker import (
     check_employer
 )
 
+from adapters import registry as adapter_registry
+
 from adapter_helper import analyze as run_adapter_helper
+from adapter_helper import test_source as run_source_test
+
+from example_sources import EXAMPLE_SOURCES, get_example
 
 from backup import create_backup
 
@@ -85,6 +90,130 @@ def _apply_suggestion(action, analysis, form_data):
             form_data["settings"] = json.dumps(
                 suggestion, indent=2, ensure_ascii=False
             )
+
+
+
+def _render_source_editor(source=None):
+    """
+    Gedeelde logica achter zowel /employer/add als /employer/<id>/edit.
+    Werkt voor beide brontypes (employer/jobboard) en voor beide
+    acties (aanmaken/bewerken) -- vandaar één template, source_edit.html,
+    in plaats van vier losse formulieren zoals voorheen.
+    """
+
+    is_new = source is None
+
+    if is_new:
+        form_data = {
+            "type": "employer",
+            "name": "",
+            "url": "",
+            "adapter": "generic_links",
+            "settings": "",
+            "keywords": "",
+            "check_interval": "daily",
+        }
+    else:
+        form_data = {
+            "type": source.type,
+            "name": source.name,
+            "url": source.url,
+            "adapter": source.adapter,
+            "settings": source.settings or "",
+            "keywords": source.keywords or "",
+            "check_interval": source.check_interval,
+        }
+
+    analysis = None
+    error = None
+    info = None
+
+    if request.method == "POST":
+
+        action = request.form.get("action", "save")
+
+        form_data["type"] = request.form.get("type", "employer")
+        form_data["name"] = request.form.get("name", "")
+        form_data["url"] = request.form.get("url", "")
+        form_data["adapter"] = request.form.get("adapter", "generic_links")
+        form_data["settings"] = request.form.get("settings", "")
+        form_data["keywords"] = request.form.get("keywords", "")
+        form_data["check_interval"] = request.form.get("check_interval", "daily")
+
+        analysis = _load_analysis_from_form()
+
+        if action == "analyze":
+
+            if not form_data["url"]:
+                error = "Vul eerst een URL in om te analyseren."
+            else:
+                analysis = run_adapter_helper(form_data["url"])
+
+        elif action.startswith("apply:"):
+
+            _apply_suggestion(action, analysis, form_data)
+
+        elif action == "use_example":
+
+            example_key = request.form.get("example_key", "")
+            example = get_example(example_key)
+
+            if example:
+                form_data["name"] = example["name"]
+                form_data["url"] = example["url"]
+                form_data["type"] = example["type"]
+                form_data["adapter"] = example["adapter"]
+                form_data["settings"] = example["settings"]
+                analysis = None
+                info = f"Voorbeeld '{example['name']}' ingevuld. {example['note']}"
+
+        elif action == "save":
+
+            if not form_data["name"] or not form_data["url"]:
+                error = "Naam en URL zijn verplicht."
+
+            else:
+
+                if is_new:
+
+                    source = Source(
+                        name=form_data["name"],
+                        url=form_data["url"],
+                        type=form_data["type"],
+                        adapter=form_data["adapter"],
+                        settings=form_data["settings"] or None,
+                        keywords=form_data["keywords"] or None,
+                        check_interval=form_data["check_interval"],
+                    )
+
+                    db.session.add(source)
+
+                else:
+
+                    source.name = form_data["name"]
+                    source.url = form_data["url"]
+                    source.type = form_data["type"]
+                    source.adapter = form_data["adapter"]
+                    source.settings = form_data["settings"] or None
+                    source.keywords = form_data["keywords"] or None
+                    source.check_interval = form_data["check_interval"]
+
+                db.session.commit()
+
+                return redirect(
+                    url_for("employer_detail", id=source.id)
+                )
+
+    return render_template(
+        "source_edit.html",
+        source=source,
+        form=form_data,
+        analysis=analysis,
+        error=error,
+        info=info,
+        is_new=is_new,
+        examples=EXAMPLE_SOURCES,
+    )
 
 
 
@@ -141,6 +270,31 @@ def create_app():
 
 
 
+    @app.route("/system/adapters")
+    @login_required
+    def system_adapters():
+
+        adapters_info = []
+
+        for name in adapter_registry.list_adapters():
+
+            capabilities = adapter_registry.get_capabilities(name)
+
+            adapters_info.append({
+                "name": name,
+                "label": capabilities.get("label", name),
+                "description": adapter_registry.get_description(name),
+                "capabilities": capabilities,
+                "source_count": Source.query.filter_by(adapter=name).count(),
+            })
+
+        return render_template(
+            "system_adapters.html",
+            adapters=adapters_info
+        )
+
+
+
     @app.route(
         "/employer/add",
         methods=[
@@ -151,130 +305,19 @@ def create_app():
     @login_required
     def add_employer():
 
-
-        if request.method == "POST":
-
-
-            employer = Source(
-
-                name=request.form["name"],
-
-                url=request.form["url"],
-
-                selector=request.form.get(
-                    "selector"
-                ),
-
-                keywords=request.form.get(
-                    "keywords"
-                ),
-
-                check_interval=request.form.get(
-                    "check_interval",
-                    "daily"
-                )
-
-            )
-
-
-            db.session.add(
-                employer
-            )
-
-
-            db.session.commit()
-
-
-
-            return redirect(
-                url_for(
-                    "dashboard"
-                )
-            )
-
-
-
-        return render_template(
-            "employer.html"
-        )
+        return _render_source_editor(source=None)
 
 
 
     @app.route(
-        "/source/jobboard/add",
-        methods=[
-            "GET",
-            "POST"
-        ]
+        "/source/jobboard/add"
     )
     @login_required
     def add_jobboard_source():
+        """Backward-compat redirect -- deze URL is samengevoegd met /employer/add."""
 
-        form_data = {
-            "name": "",
-            "url": "",
-            "adapter": "generic_links",
-            "settings": "",
-            "keywords": "",
-            "check_interval": "daily",
-        }
-
-        analysis = None
-        error = None
-
-        if request.method == "POST":
-
-            action = request.form.get("action", "save")
-
-            form_data["name"] = request.form.get("name", "")
-            form_data["url"] = request.form.get("url", "")
-            form_data["adapter"] = request.form.get("adapter", "generic_links")
-            form_data["settings"] = request.form.get("settings", "")
-            form_data["keywords"] = request.form.get("keywords", "")
-            form_data["check_interval"] = request.form.get("check_interval", "daily")
-
-            analysis = _load_analysis_from_form()
-
-            if action == "analyze":
-
-                if not form_data["url"]:
-                    error = "Vul eerst een URL in om te analyseren."
-                else:
-                    analysis = run_adapter_helper(form_data["url"])
-
-            elif action.startswith("apply:"):
-
-                _apply_suggestion(action, analysis, form_data)
-
-            elif action == "save":
-
-                if not form_data["name"] or not form_data["url"]:
-                    error = "Naam en URL zijn verplicht."
-
-                else:
-
-                    source = Source(
-                        name=form_data["name"],
-                        url=form_data["url"],
-                        type="jobboard",
-                        adapter=form_data["adapter"],
-                        settings=form_data["settings"] or None,
-                        keywords=form_data["keywords"] or None,
-                        check_interval=form_data["check_interval"],
-                    )
-
-                    db.session.add(source)
-                    db.session.commit()
-
-                    return redirect(
-                        url_for("employer_detail", id=source.id)
-                    )
-
-        return render_template(
-            "source_jobboard_add.html",
-            form=form_data,
-            analysis=analysis,
-            error=error,
+        return redirect(
+            url_for("add_employer")
         )
 
 
@@ -303,6 +346,37 @@ def create_app():
             "employer_detail.html",
             employer=employer,
             logs=logs
+        )
+
+
+
+    @app.route(
+        "/employer/<int:id>/test"
+    )
+    @login_required
+    def test_source_route(id):
+
+
+        employer = Source.query.get_or_404(
+            id
+        )
+
+
+        logs = ChangeLog.query.filter_by(
+            employer_id=id
+        ).order_by(
+            ChangeLog.created_at.desc()
+        ).all()
+
+
+        test_result = run_source_test(employer)
+
+
+        return render_template(
+            "employer_detail.html",
+            employer=employer,
+            logs=logs,
+            test_result=test_result
         )
 
 
@@ -370,134 +444,7 @@ def create_app():
         )
 
 
-        if employer.type == "jobboard":
-            return _edit_jobboard_source(employer)
-
-
-        if request.method == "POST":
-
-
-            employer.name = (
-                request.form["name"]
-            )
-
-
-            employer.url = (
-                request.form["url"]
-            )
-
-
-            employer.selector = (
-                request.form.get(
-                    "selector"
-                )
-            )
-
-
-            employer.keywords = (
-                request.form.get(
-                    "keywords"
-                )
-            )
-
-
-            employer.check_interval = (
-                request.form.get(
-                    "check_interval",
-                    "daily"
-                )
-            )
-
-
-            db.session.commit()
-
-
-
-            return redirect(
-                url_for(
-                    "employer_detail",
-                    id=id
-                )
-            )
-
-
-
-        return render_template(
-            "employer_edit.html",
-            employer=employer
-        )
-
-
-
-    def _edit_jobboard_source(source):
-        """
-        Aparte afhandeling voor type="jobboard": zelfde wizard-stijl als
-        add_jobboard_source, maar dan bewerkend op een bestaande Source.
-        """
-
-        form_data = {
-            "name": source.name,
-            "url": source.url,
-            "adapter": source.adapter,
-            "settings": source.settings or "",
-            "keywords": source.keywords or "",
-            "check_interval": source.check_interval,
-        }
-
-        analysis = None
-        error = None
-
-        if request.method == "POST":
-
-            action = request.form.get("action", "save")
-
-            form_data["name"] = request.form.get("name", "")
-            form_data["url"] = request.form.get("url", "")
-            form_data["adapter"] = request.form.get("adapter", "generic_links")
-            form_data["settings"] = request.form.get("settings", "")
-            form_data["keywords"] = request.form.get("keywords", "")
-            form_data["check_interval"] = request.form.get("check_interval", "daily")
-
-            analysis = _load_analysis_from_form()
-
-            if action == "analyze":
-
-                if not form_data["url"]:
-                    error = "Vul eerst een URL in om te analyseren."
-                else:
-                    analysis = run_adapter_helper(form_data["url"])
-
-            elif action.startswith("apply:"):
-
-                _apply_suggestion(action, analysis, form_data)
-
-            elif action == "save":
-
-                if not form_data["name"] or not form_data["url"]:
-                    error = "Naam en URL zijn verplicht."
-
-                else:
-
-                    source.name = form_data["name"]
-                    source.url = form_data["url"]
-                    source.adapter = form_data["adapter"]
-                    source.settings = form_data["settings"] or None
-                    source.keywords = form_data["keywords"] or None
-                    source.check_interval = form_data["check_interval"]
-
-                    db.session.commit()
-
-                    return redirect(
-                        url_for("employer_detail", id=source.id)
-                    )
-
-        return render_template(
-            "source_jobboard_edit.html",
-            source=source,
-            form=form_data,
-            analysis=analysis,
-            error=error,
-        )
+        return _render_source_editor(source=employer)
 
 
 

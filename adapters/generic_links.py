@@ -30,6 +30,17 @@ DEFAULT_KEYWORDS = [
 ]
 
 
+CAPABILITIES = {
+    "label": "Generieke links",
+    "supports_pagination": False,
+    "supports_categories": False,
+    "supports_detail_pages": False,
+    "supports_dates": False,
+    "supports_location": False,
+    "requires_credentials": False,
+}
+
+
 def fetch(source):
     return fetch_html(source.url)
 
