@@ -10,30 +10,70 @@ from models import (
 )
 
 
-from scraper import fetch_html
-
-
-from vacancy_parser import parse_vacancies
+from adapters import registry
+from adapters.base import (
+    load_settings,
+    get_keyword_filters,
+    apply_keyword_filter,
+    AdapterError,
+)
 
 
 from services.notification_service import notify
 
 
 
-def check_employer(
-    employer
-):
+def check_employer(source):
+    """
+    Blijft bestaan als alias voor achterwaartse compatibiliteit
+    (bv. bestaande routes die 'check_employer' aanroepen).
+    """
+
+    return check_source(source)
 
 
-    html = fetch_html(
-        employer.url
-    )
 
+def check_source(source):
 
-    vacancies = parse_vacancies(
-        html,
-        employer.url
-    )
+    adapter = registry.get(source.adapter)
+
+    try:
+        raw_content = adapter.fetch(source)
+        vacancies = adapter.parse(raw_content, source)
+
+        settings = load_settings(source)
+        include_keywords, exclude_keywords = get_keyword_filters(source, settings)
+
+        vacancies = apply_keyword_filter(
+            vacancies,
+            include_keywords=include_keywords,
+            exclude_keywords=exclude_keywords
+        )
+
+    except AdapterError as error:
+
+        message = f"Fout bij ophalen van '{source.name}': {error}"
+
+        log = ChangeLog(
+            employer_id=source.id,
+            change_type="error",
+            message=message
+        )
+
+        db.session.add(log)
+
+        # ook bij een mislukte controle bijwerken -- anders lijkt een
+        # bron die al weken faalt op het dashboard nog "recent
+        # gecontroleerd", puur omdat de laatste GESLAAGDE poging lang
+        # geleden was
+        source.last_check = datetime.utcnow()
+        source.last_error = str(error)
+
+        db.session.commit()
+
+        notify("Fout bij vacature-check", message)
+
+        return
 
 
 
@@ -41,7 +81,7 @@ def check_employer(
 
         vacancy.url: vacancy
 
-        for vacancy in employer.vacancies
+        for vacancy in source.vacancies
 
         if vacancy.url
 
@@ -51,9 +91,7 @@ def check_employer(
 
     found = set()
 
-
     new = []
-
     removed = []
 
 
@@ -75,7 +113,7 @@ def check_employer(
 
             vacancy = Vacancy(
 
-                employer_id=employer.id,
+                employer_id=source.id,
 
                 title=item["title"],
 
@@ -100,9 +138,7 @@ def check_employer(
 
 
             vacancy = existing[url]
-
             vacancy.active = True
-
             vacancy.last_seen = datetime.utcnow()
 
 
@@ -117,14 +153,16 @@ def check_employer(
 
 
                 vacancy.active = False
-
                 removed.append(
                     vacancy.title
                 )
 
 
 
-    employer.last_check = datetime.utcnow()
+    source.last_check = datetime.utcnow()
+    source.last_success = datetime.utcnow()
+    source.last_error = None
+    source.last_new_count = len(new)
 
 
 
@@ -132,7 +170,7 @@ def check_employer(
 
 
         message = (
-            employer.name
+            source.name
             +
             "\n\n"
         )
@@ -179,7 +217,7 @@ def check_employer(
 
         log = ChangeLog(
 
-            employer_id=employer.id,
+            employer_id=source.id,
 
             change_type="vacancy",
 

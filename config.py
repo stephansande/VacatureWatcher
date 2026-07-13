@@ -113,3 +113,18 @@ class Config:
         "TELEGRAM_CHAT_ID",
         ""
     )
+
+
+    # CSO Vacature-API (WerkenvoorNederland.nl e.a.)
+    # Account aanvragen via helpdesk@werkenvoornederland.nl
+    # zie https://docs.api.cso20.net/
+
+    CSO_USERNAME = os.getenv(
+        "CSO_USERNAME",
+        ""
+    )
+
+    CSO_PASSWORD = os.getenv(
+        "CSO_PASSWORD",
+        ""
+    )

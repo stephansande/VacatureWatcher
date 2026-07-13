@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+{% if is_new %}Bron toevoegen{% else %}Bron wijzigen{% endif %}
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+{% if is_new %}Nieuwe bron toevoegen{% else %}Bron wijzigen{% endif %}
+</h1>
+
+
+{% if error %}
+<p style="color: #b91c1c;">
+{{ error }}
+</p>
+{% endif %}
+
+
+{% if info %}
+<p class="result-box status-ok">
+{{ info }}
+</p>
+{% endif %}
+
+
+<form method="post" id="source-form">
+
+<input type="hidden" name="analysis_json" value='{{ analysis | tojson if analysis else "" }}'>
+
+
+{% if is_new and examples %}
+
+<label>
+Begin met een voorbeeld (optioneel)
+</label>
+<br>
+
+<select name="example_key">
+<option value="">-- kies een voorbeeldbron --</option>
+{% for example in examples %}
+<option value="{{ example.key }}">{{ example.name }}</option>
+{% endfor %}
+</select>
+
+<button class="button" type="submit" name="action" value="use_example">
+Vul voorbeeld in
+</button>
+
+<p class="muted">
+Vult naam en URL in; voor de meeste voorbeelden moet je daarna zelf
+op "Analyseren" klikken om de juiste adapter-instellingen te vinden
+(zie ook adapters/EXAMPLES.md).
+</p>
+
+<hr>
+
+{% endif %}
+
+
+<label>
+Type bron
+</label>
+<br>
+
+<label style="display:inline; width:auto;">
+<input
+type="radio"
+name="type"
+value="employer"
+style="width:auto;"
+onchange="toggleSourceType()"
+{% if form.type == "employer" %}checked{% endif %}
+>
+Werkgever
+</label>
+
+&nbsp;&nbsp;
+
+<label style="display:inline; width:auto;">
+<input
+type="radio"
+name="type"
+value="jobboard"
+style="width:auto;"
+onchange="toggleSourceType()"
+{% if form.type == "jobboard" %}checked{% endif %}
+>
+Vacatureplatform
+</label>
+
+<p class="muted">
+Werkgever: een enkele "werken bij"-pagina van één organisatie.
+Vacatureplatform: een vacaturesite met veel werkgevers/vacatures
+door elkaar (Adapter Helper hieronder helpt de juiste instellingen te vinden).
+</p>
+
+
+<br>
+
+
+<label>
+Naam bron
+</label>
+<br>
+<input
+type="text"
+name="name"
+value="{{ form.name }}"
+required
+placeholder="Bijvoorbeeld: Gemeente Rotterdam, of Culturele Vacatures"
+>
+
+<br><br>
+
+
+<label>
+URL
+</label>
+<br>
+<input
+type="url"
+name="url"
+size="80"
+value="{{ form.url }}"
+required
+placeholder="https://www.voorbeeld.nl/vacatures/"
+>
+
+<br><br>
+
+
+<button
+class="button"
+type="submit"
+name="action"
+value="analyze">
+Analyseren (Adapter Helper)
+</button>
+
+<p class="muted">
+Haalt de pagina op en test automatisch welke adapter/instellingen
+werken. Kan voor beide brontypes gebruikt worden, maar is vooral
+nuttig bij vacatureplatforms.
+</p>
+
+<br>
+
+
+{% if analysis %}
+
+{% if analysis.fetch_error %}
+
+<div class="result-box">
+<h4>
+Kon de pagina niet ophalen
+</h4>
+<p>
+{{ analysis.fetch_error }}
+</p>
+<p class="muted">
+Controleer of de URL klopt, of of de site geautomatiseerde toegang
+blokkeert (robots.txt / firewall).
+</p>
+</div>
+
+{% else %}
+
+<h2>
+Analyse-resultaten
+</h2>
+
+
+<div class="result-box {% if analysis.recommendation == 'jsonld_listing' %}recommended{% endif %}">
+<h4>
+1. JSON-LD (schema.org JobPosting) &mdash; adapter <code>jsonld_listing</code>
+{% if analysis.recommendation == 'jsonld_listing' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.jsonld %}
+<p>
+{{ analysis.jsonld.count }} vacature(s) gevonden via gestructureerde data.
+</p>
+<ul>
+{% for item in analysis.jsonld.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+{% if analysis.pagination and analysis.pagination.detected and analysis.pagination.url_pattern %}
+<p class="muted">
+Paginering gedetecteerd en meegenomen in de instellingen hieronder
+(max. {{ analysis.pagination.max_pages }} pagina's).
+</p>
+{% endif %}
+<button class="button" type="submit" name="action" value="apply:jsonld_listing">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">
+Geen JSON-LD JobPosting-data gevonden op deze pagina.
+</p>
+{% endif %}
+</div>
+
+
+<div class="result-box {% if analysis.recommendation == 'microdata_listing' %}recommended{% endif %}">
+<h4>
+2. Microdata (schema.org, HTML-attributen) &mdash; adapter <code>microdata_listing</code>
+{% if analysis.recommendation == 'microdata_listing' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.microdata %}
+<p>
+{{ analysis.microdata.count }} vacature(s) gevonden via itemscope/itemprop-attributen.
+</p>
+<ul>
+{% for item in analysis.microdata.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+{% if analysis.pagination and analysis.pagination.detected and analysis.pagination.url_pattern %}
+<p class="muted">
+Paginering gedetecteerd en meegenomen in de instellingen hieronder
+(max. {{ analysis.pagination.max_pages }} pagina's).
+</p>
+{% endif %}
+<button class="button" type="submit" name="action" value="apply:microdata_listing">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">
+Geen schema.org microdata (itemscope/itemtype="...JobPosting") gevonden.
+</p>
+{% endif %}
+</div>
+
+
+<div class="result-box {% if analysis.recommendation == 'html_listing' %}recommended{% endif %}">
+<h4>
+3. Herhalend HTML-blok &mdash; adapter <code>html_listing</code>
+{% if analysis.recommendation == 'html_listing' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.html_listing %}
+<p>
+{{ analysis.html_listing.total_matches }} blokken gevonden met selector
+<code>{{ analysis.html_listing.item_selector }}</code>,
+titel via <code>{{ analysis.html_listing.title_selector }}</code>.
+{% if analysis.html_listing.location_selector %}
+Locatie gevonden via <code>{{ analysis.html_listing.location_selector }}</code>.
+{% endif %}
+{% if analysis.html_listing.date_selector %}
+Datum gevonden via <code>{{ analysis.html_listing.date_selector }}</code>.
+{% endif %}
+</p>
+<ul>
+{% for item in analysis.html_listing.preview %}
+<li>
+<a href="{{ item.url }}" target="_blank">{{ item.title }}</a>
+{% if item.location %} &mdash; {{ item.location }}{% endif %}
+{% if item.date %} &mdash; {{ item.date }}{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% if analysis.pagination and analysis.pagination.detected %}
+<p class="muted">
+{% if analysis.pagination.url_pattern %}
+Paginering gedetecteerd en meegenomen in de instellingen hieronder
+(max. {{ analysis.pagination.max_pages }} pagina's).
+{% else %}
+{{ analysis.pagination.note }}
+{% endif %}
+</p>
+{% endif %}
+<p class="muted">
+Dit is een heuristiek -- controleer de voorbeelden voordat je opslaat.
+</p>
+<button class="button" type="submit" name="action" value="apply:html_listing">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">
+Geen overtuigend herhalend blok gevonden rond vacature-achtige links.
+</p>
+{% endif %}
+</div>
+
+
+<div class="result-box {% if analysis.recommendation == 'generic_links' %}recommended{% endif %}">
+<h4>
+4. Generieke links &mdash; adapter <code>generic_links</code>
+{% if analysis.recommendation == 'generic_links' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.generic_links %}
+<p>
+{{ analysis.generic_links.count }} vacature-achtige links gevonden.
+</p>
+<ul>
+{% for item in analysis.generic_links.preview %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+<button class="button" type="submit" name="action" value="apply:generic_links">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">
+Ook geen enkele vacature-achtige link gevonden op deze pagina.
+</p>
+{% endif %}
+</div>
+
+{% endif %}
+
+{% endif %}
+
+
+<hr>
+
+
+<details id="advanced-details" {% if form.type == "jobboard" or form.settings %}open{% endif %}>
+
+<summary style="cursor:pointer; font-weight:bold;">
+Geavanceerd: adapter &amp; instellingen
+</summary>
+
+<br>
+
+<label>
+Adapter
+</label>
+<br>
+<select name="adapter">
+<option value="generic_links" {% if form.adapter == "generic_links" %}selected{% endif %}>generic_links</option>
+<option value="html_listing" {% if form.adapter == "html_listing" %}selected{% endif %}>html_listing</option>
+<option value="jsonld_listing" {% if form.adapter == "jsonld_listing" %}selected{% endif %}>jsonld_listing</option>
+<option value="microdata_listing" {% if form.adapter == "microdata_listing" %}selected{% endif %}>microdata_listing</option>
+<option value="cso_api" {% if form.adapter == "cso_api" %}selected{% endif %}>cso_api</option>
+</select>
+
+<p class="muted">
+Wordt automatisch gezet als je hierboven op "Gebruik deze instellingen"
+klikt. Kies <code>cso_api</code> handmatig voor CSO-platformsites --
+dat kan de Adapter Helper niet detecteren (vereist een eigen account,
+zie adapters/EXAMPLES.md).
+</p>
+
+<br>
+
+<label>
+Settings (JSON)
+</label>
+<br>
+<textarea name="settings" rows="10">{{ form.settings }}</textarea>
+
+<p class="muted">
+Alle adapter-specifieke configuratie (selectors, paginering,
+categorieën, keywords, CSO-filters) hoort hier -- zie
+adapters/EXAMPLES.md voor de vorm per adapter.
+</p>
+
+</details>
+
+
+<br>
+
+
+<label>
+Zoekwoorden (include-filter, optioneel)
+</label>
+<br>
+<input type="text" name="keywords" size="80" value="{{ form.keywords }}"
+placeholder="bijvoorbeeld: ict, netwerk, beheer, asset">
+
+<p class="muted">
+Alleen vacatures met één van deze woorden worden gemeld. Komma-gescheiden.
+Kan ook via settings.include_keywords -- dit veld is de eenvoudige,
+legacy-route en blijft als fallback werken.
+</p>
+
+<br><br>
+
+
+<label>
+Controle interval
+</label>
+<br>
+<select name="check_interval">
+<option value="daily" {% if form.check_interval == "daily" %}selected{% endif %}>Dagelijks</option>
+<option value="weekly" {% if form.check_interval == "weekly" %}selected{% endif %}>Wekelijks</option>
+<option value="disabled" {% if form.check_interval == "disabled" %}selected{% endif %}>Uitgeschakeld</option>
+</select>
+
+<br><br><br>
+
+
+<button class="button" type="submit" name="action" value="save">
+Opslaan
+</button>
+
+<a class="button" href="{% if is_new %}/{% else %}/employer/{{ source.id }}{% endif %}">
+Annuleren
+</a>
+
+
+</form>
+
+
+{% if not is_new %}
+
+<hr>
+
+<h3>
+Bron verwijderen
+</h3>
+
+<p>
+Let op: hiermee worden ook de opgeslagen vacatures en historie verwijderd.
+</p>
+
+<a class="button"
+href="/employer/{{ source.id }}/delete"
+onclick="return confirm('Bron en alle historie verwijderen?');">
+Bron verwijderen
+</a>
+
+{% endif %}
+
+
+<script>
+function toggleSourceType() {
+    var jobboard = document.querySelector('input[name="type"][value="jobboard"]').checked;
+    var details = document.getElementById('advanced-details');
+    if (jobboard) {
+        details.open = true;
+    }
+}
+</script>
+
+
+{% endblock %}

@@ -10,10 +10,14 @@ from werkzeug.security import (
 
 
 
-class Employer(db.Model):
+class Source(db.Model):
     """
-    Werkgever met een te controleren vacaturepagina
+    Een bron die periodiek gecontroleerd wordt op vacatures --
+    dit kan een individuele werkgever zijn (type="employer") of een
+    vacaturesite/jobboard (type="jobboard").
     """
+
+    __tablename__ = "source"
 
     id = db.Column(
         db.Integer,
@@ -34,6 +38,9 @@ class Employer(db.Model):
         db.String(300),
         nullable=True
     )
+    # legacy v1-veld, wordt niet meer gebruikt door de v2-adapters
+    # (vervangen door "settings" hieronder) -- blijft bestaan zodat
+    # oude data niet verloren gaat
 
     enabled = db.Column(
         db.Boolean,
@@ -49,6 +56,40 @@ class Employer(db.Model):
         db.Text,
         nullable=True
     )
+    # legacy INCLUDE-filter (komma-gescheiden). Voor nieuwe jobboard-
+    # sources kun je include/exclude-keywords ook (of in plaats
+    # daarvan) in "settings" opgeven -- zie apply_keyword_filter()
+    # in adapters/base.py voor hoe beide samenkomen.
+
+    type = db.Column(
+        db.String(20),
+        default="employer",
+        nullable=False
+    )
+    # "employer" (v1-gedrag, een enkele werkgeverspagina)
+    # "jobboard" (een vacaturesite, met een specifieke adapter)
+
+    adapter = db.Column(
+        db.String(50),
+        default="generic_links",
+        nullable=False
+    )
+    # zie adapters/registry.py: "generic_links" | "html_listing" |
+    # "jsonld_listing" | "cso_api"
+    # Blijft een eigen kolom (i.p.v. in settings) omdat de applicatie
+    # hierop dispatcht/filtert -- dat hoort in een doorzoekbare kolom,
+    # niet verstopt in een JSON-blob.
+
+    settings = db.Column(
+        db.Text,
+        nullable=True
+    )
+    # ÉÉN generieke JSON-kolom met alle adapter-specifieke parameters:
+    # CSS-selectors, categorieën, paginering, CSO-filtercriteria,
+    # include/exclude-keywords, url-templates, etc. -- zie de
+    # docstring bovenin het betreffende adapters/*.py bestand voor de
+    # exacte vorm per adapter. Zo hoeft een nieuwe adapter-optie nooit
+    # meer een databasemigratie te vereisen.
 
     created_at = db.Column(
         db.DateTime,
@@ -65,10 +106,32 @@ class Employer(db.Model):
         nullable=True
     )
 
+    last_success = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+    # tijdstip van de laatste GESLAAGDE controle (in tegenstelling tot
+    # last_check hierboven, dat ook bijgewerkt wordt bij een mislukte
+    # controle)
+
+    last_error = db.Column(
+        db.Text,
+        nullable=True
+    )
+    # foutmelding van de laatste mislukte controle, of NULL als de
+    # laatste controle geslaagd is
+
+    last_new_count = db.Column(
+        db.Integer,
+        nullable=True
+    )
+    # aantal nieuwe vacatures gevonden tijdens de laatste geslaagde
+    # controle
+
 
     pages = db.relationship(
         "VacancyPage",
-        backref="employer",
+        backref="source",
         lazy=True,
         cascade="all, delete"
     )
@@ -76,7 +139,7 @@ class Employer(db.Model):
 
     vacancies = db.relationship(
         "Vacancy",
-        backref="employer",
+        backref="source",
         lazy=True,
         cascade="all, delete"
     )
@@ -84,7 +147,7 @@ class Employer(db.Model):
 
     changes = db.relationship(
         "ChangeLog",
-        backref="employer",
+        backref="source",
         lazy=True,
         cascade="all, delete"
     )
@@ -92,7 +155,7 @@ class Employer(db.Model):
 
     def __repr__(self):
 
-        return f"<Employer {self.name}>"
+        return f"<Source {self.name}>"
 
 
 
@@ -112,7 +175,7 @@ class VacancyPage(db.Model):
     employer_id = db.Column(
         db.Integer,
         db.ForeignKey(
-            "employer.id"
+            "source.id"
         ),
         nullable=False
     )
@@ -152,7 +215,7 @@ class ChangeLog(db.Model):
     employer_id = db.Column(
         db.Integer,
         db.ForeignKey(
-            "employer.id"
+            "source.id"
         ),
         nullable=False
     )
@@ -196,7 +259,7 @@ class Vacancy(db.Model):
     employer_id = db.Column(
         db.Integer,
         db.ForeignKey(
-            "employer.id"
+            "source.id"
         ),
         nullable=False
     )
