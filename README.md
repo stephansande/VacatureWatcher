@@ -55,8 +55,14 @@ volledige uitleg.
 | `jsonld_listing` | schema.org JobPosting als JSON-LD | ja | nee | ja | ja | ja | nee |
 | `microdata_listing` | schema.org JobPosting als HTML-attributen | ja | nee | ja | ja | ja | nee |
 | `html_listing` | herhalende HTML-blokken, via CSS-selectors | ja | ja | nee | ja | ja | nee |
+| `browser_listing` | sites die vacatures via JavaScript laden (headless Chromium) | ja | nee | nee | ja | ja | nee* |
 | `generic_links` | simpele "vacature-achtige" links (v1-aanpak) | nee | nee | nee | nee | nee | nee |
 | `cso_api` | CSO Vacature-API (Werken voor Nederland e.a.) | nee | ja | nee | nee | nee | ja |
+
+\* `browser_listing` vereist geen account, maar wel een losse
+installatiestap (Playwright + Chromium) -- zie
+`requirements-browser.txt`. Gebruik dit alleen als de andere adapters
+aantoonbaar niets vinden (zie **Systeem → Diagnose** hieronder).
 
 Dit overzicht staat ook live in de applicatie onder **Systeem →
 Adapters**, inclusief hoeveel bronnen elke adapter op dit moment
@@ -100,6 +106,16 @@ Elke bron toont een statusoverzicht: laatste controle, laatste
 geslaagde controle, aantal (actieve) vacatures, aantal nieuwe
 vacatures bij de laatste geslaagde controle, de gebruikte adapter, en
 de laatste foutmelding (indien van toepassing).
+
+### Systeem → Diagnose
+
+Draait "Bron testen" in één keer tegen ALLE bronnen, en categoriseert
+het resultaat: OK, geen resultaten, of fout -- met bij "geen
+resultaten" een vermoeden of het om JavaScript-rendering gaat (weinig
+zichtbare tekst / bekende SPA-kenmerken in de HTML). Handig zodra je
+meerdere bronnen hebt: in plaats van bronnen één voor één handmatig na
+te lopen, zie je in één overzicht welke aandacht nodig hebben en
+waarom.
 
 ### Voorbeeldbronnen
 
@@ -346,6 +362,7 @@ vacaturewatcher/
 │   ├── html_listing.py
 │   ├── jsonld_listing.py
 │   ├── microdata_listing.py
+│   ├── browser_listing.py    optioneel, vereist requirements-browser.txt
 │   ├── cso_api.py
 │   └── EXAMPLES.md           configuratievoorbeelden per adapter
 
@@ -366,6 +383,7 @@ vacaturewatcher/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-browser.txt  optioneel: adapters/browser_listing.py
 └── .env.example
 ```
 
@@ -384,12 +402,14 @@ vacaturewatcher/
 
 # Beperkingen
 
-* Sommige vacaturepagina's laden inhoud via JavaScript; dit soort
-  pagina's kan een headless browser vereisen, wat VacatureWatcher niet
-  ingebouwd heeft.
+* Sommige vacaturepagina's laden inhoud via JavaScript; gebruik
+  daarvoor `browser_listing` (zie hierboven) -- vereist een losse
+  installatiestap (`requirements-browser.txt`) en is zwaarder qua
+  resources dan de andere adapters.
 * Sommige websites blokkeren geautomatiseerde toegang (robots.txt) of
   verbieden scraping in hun voorwaarden -- controleer dit zelf per
-  site voordat je een bron toevoegt.
+  site voordat je een bron toevoegt (de applicatie checkt dit op dit
+  moment niet automatisch, zie Roadmap).
 * De `html_listing`-heuristiek van de Adapter Helper is een gok op
   basis van herhalende structuur; controleer altijd de preview
   voordat je opslaat.
@@ -399,6 +419,9 @@ vacaturewatcher/
 * `cso_api` extraheert nog geen locatie/datum (de API levert dit wel,
   maar het exacte veldpad is nog niet geverifieerd -- zie de
   toelichting in `adapters/cso_api.py`).
+* Gebruik **Systeem → Diagnose** om in één keer te zien welke bronnen
+  niet (goed) werken en waarom, in plaats van dit per bron handmatig
+  te moeten uitzoeken.
 
 Gebruik de applicatie volgens de voorwaarden van de betreffende
 websites.
@@ -414,7 +437,16 @@ Mogelijke toekomstige uitbreidingen:
 * [ ] `settings.categories` daadwerkelijk toepassen op sites die dat
       ondersteunen (nu alleen informatief veld)
 * [ ] RSS-adapter
-* [ ] Browser automation voor JavaScript-zware pagina's
+* [x] Browser automation voor JavaScript-zware pagina's
+      (`adapters/browser_listing.py`, optioneel via
+      `requirements-browser.txt`)
+* [ ] `browser_listing`: detailpagina-modus (mode "detail", zoals
+      jsonld_listing/microdata_listing al hebben)
+* [ ] Geautomatiseerde testsuite (pytest) -- veel van de heuristieken
+      zijn tijdens ontwikkeling ad-hoc getest maar niet als
+      regressietest vastgelegd
+* [ ] Robots.txt-check inbouwen in `scraper.fetch_html()`
+* [ ] CSRF-bescherming (Flask-WTF)
 * [ ] Overstap naar Flask-Migrate/Alembic i.p.v. handmatige
       migratiescripts
 * [ ] Meerdere gebruikers

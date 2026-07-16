@@ -37,6 +37,7 @@ from adapters import registry as adapter_registry
 
 from adapter_helper import analyze as run_adapter_helper
 from adapter_helper import test_source as run_source_test
+from adapter_helper import diagnose_source
 
 from example_sources import EXAMPLE_SOURCES, get_example
 
@@ -90,6 +91,46 @@ def _apply_suggestion(action, analysis, form_data):
             form_data["settings"] = json.dumps(
                 suggestion, indent=2, ensure_ascii=False
             )
+
+
+
+def _validate_settings(adapter_name, settings_text):
+    """
+    Lichte validatie bij het opslaan van een bron, zodat een kapotte
+    configuratie meteen zichtbaar is in plaats van pas bij de eerste
+    (mislukte) geplande controle. Geeft een foutmelding terug, of None
+    als alles in orde is.
+    """
+
+    if not settings_text or not settings_text.strip():
+        # settings is optioneel voor de meeste adapters (bv. cso_api,
+        # of html_listing/jsonld/microdata die op source.url terugvallen
+        # als start_url ontbreekt) -- alleen html_listing/browser_listing
+        # kunnen zonder selectors niets, dat vangen we hieronder af.
+        settings_dict = {}
+    else:
+        try:
+            settings_dict = json.loads(settings_text)
+        except (ValueError, TypeError) as error:
+            return f"Settings is geen geldige JSON: {error}"
+
+        if not isinstance(settings_dict, dict):
+            return "Settings moet een JSON-object zijn (bv. {\"start_url\": \"...\"})."
+
+    if adapter_name in ("html_listing", "browser_listing"):
+
+        if adapter_name == "browser_listing" and settings_dict.get("parse_as", "html_listing") != "html_listing":
+            return None
+
+        selectors = settings_dict.get("selectors", {})
+
+        if not selectors.get("item"):
+            return "settings.selectors.item ontbreekt (verplicht voor deze adapter)."
+
+        if not selectors.get("title") and not selectors.get("link"):
+            return "settings.selectors.title of settings.selectors.link ontbreekt (minstens één is verplicht)."
+
+    return None
 
 
 
@@ -173,6 +214,10 @@ def _render_source_editor(source=None):
                 error = "Naam en URL zijn verplicht."
 
             else:
+
+                error = _validate_settings(form_data["adapter"], form_data["settings"])
+
+            if not error:
 
                 if is_new:
 
@@ -270,6 +315,43 @@ def create_app():
 
 
 
+    @app.route("/vacatures")
+    @login_required
+    def vacatures_overzicht():
+        """
+        Bron | Actuele vacatures naast elkaar, over alle bronnen heen --
+        dezelfde weergave als het handmatige bronnenoverzicht.html-rapport,
+        maar dan met live data uit de database i.p.v. een momentopname.
+        """
+
+        sources = Source.query.order_by(Source.name).all()
+
+        rows = []
+
+        for source in sources:
+
+            active_vacancies = [
+                vacancy for vacancy in source.vacancies if vacancy.active
+            ]
+
+            active_vacancies.sort(key=lambda v: v.title)
+
+            rows.append({
+                "source": source,
+                "vacancies": active_vacancies,
+            })
+
+        total_vacancies = sum(len(row["vacancies"]) for row in rows)
+
+        return render_template(
+            "vacatures_overzicht.html",
+            rows=rows,
+            total_sources=len(rows),
+            total_vacancies=total_vacancies,
+        )
+
+
+
     @app.route("/system/adapters")
     @login_required
     def system_adapters():
@@ -291,6 +373,40 @@ def create_app():
         return render_template(
             "system_adapters.html",
             adapters=adapters_info
+        )
+
+
+
+    @app.route("/system/diagnose")
+    @login_required
+    def system_diagnose():
+        """
+        Draait 'Bron testen' in één keer tegen ALLE bronnen, en
+        categoriseert de resultaten (ok / geen resultaten / fout).
+        Kan even duren bij veel bronnen -- elke bron wordt na elkaar
+        opgehaald, net als een geplande controle dat zou doen.
+        """
+
+        sources = Source.query.order_by(Source.name).all()
+
+        diagnoses = [diagnose_source(source) for source in sources]
+
+        summary = {
+            "ok": sum(1 for d in diagnoses if d["category"] == "ok"),
+            "geen_resultaten": sum(1 for d in diagnoses if d["category"] == "geen_resultaten"),
+            "fout": sum(1 for d in diagnoses if d["category"] == "fout"),
+        }
+
+        # problematische bronnen eerst, zodat je niet door de werkende
+        # bronnen heen hoeft te scrollen
+        category_order = {"fout": 0, "geen_resultaten": 1, "ok": 2}
+        diagnoses.sort(key=lambda d: category_order[d["category"]])
+
+        return render_template(
+            "system_diagnose.html",
+            diagnoses=diagnoses,
+            summary=summary,
+            total=len(diagnoses),
         )
 
 

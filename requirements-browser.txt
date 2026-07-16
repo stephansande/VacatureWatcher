@@ -1,0 +1,13 @@
+# Alleen nodig voor adapters/browser_listing.py (JavaScript-gerenderde
+# vacaturesites). Bewust GEEN onderdeel van requirements.txt: dit
+# voegt een volledige browser-binary toe (honderden MB's extra in de
+# Docker-image), wat de meeste installaties niet nodig hebben.
+#
+# Installatie (lokaal):
+#   pip install -r requirements-browser.txt
+#   playwright install --with-deps chromium
+#
+# Voor Docker: zie de uitgecommentarieerde regels in de Dockerfile.
+#
+# Versie hieronder is getest en werkend bevestigd (zie ontwikkellog):
+playwright==1.56.0

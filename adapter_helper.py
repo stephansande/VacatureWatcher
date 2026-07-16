@@ -85,6 +85,27 @@ VACANCY_KEYWORDS = [
 
 HEADING_TAGS = ["h2", "h3", "h4"]
 
+COMMON_ITEM_HINTS = [
+    ".vacature",
+    ".vacature-item",
+    ".vacancy",
+    ".job",
+    ".job-item",
+    ".job-listing",
+    "article",
+]
+# Extra KANDIDATEN voor _detect_via_common_classes, geen garanties --
+# elke hint moet nog steeds >= MIN_MATCHES elementen opleveren mét een
+# vindbare titel/link erin, anders wordt de volgende hint geprobeerd
+# (of uiteindelijk niets gevonden). Bewust kort gehouden: te veel/te
+# generieke hints (bv. ".card", ".item") verhogen het risico op een
+# fout-positieve match met niet-vacature-content.
+
+MAX_TITLE_LENGTH = 120
+# zelfde grens en zelfde reden als adapters/generic_links.py: een hele
+# alinea marketingtekst als linktekst mag nooit als vacaturetitel
+# doorgaan, ook al matcht een keyword toevallig in de URL.
+
 DATE_PATTERN = re.compile(
     r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b"
     r"|\b\d{1,2}\s+(januari|februari|maart|april|mei|juni|juli|"
@@ -97,6 +118,123 @@ LOCATION_CLASS_HINTS = ["locat", "plaats", "stad", "regio", "location", "city"]
 
 PAGINATION_TEXT_HINTS = ["volgende", "next", "verder", "meer laden"]
 PAGINATION_QUERY_KEYS = ["page", "pagina", "p"]
+
+
+JS_RENDERING_MARKERS = [
+    'id="root"',
+    'id="app"',
+    'id="__next"',
+    "data-reactroot",
+    "ng-version",
+]
+
+MIN_VISIBLE_TEXT_FOR_STATIC_PAGE = 200
+
+
+def diagnose_source(source, limit=TEST_PREVIEW_LIMIT):
+    """
+    Zoals test_source(), maar met een categorisering van het resultaat
+    erbovenop -- bedoeld voor de bulk-diagnosepagina (Systeem ->
+    Bronnen diagnosticeren), zodat je in één keer een overzicht krijgt
+    van AL je bronnen in plaats van er één voor één doorheen te moeten
+    (zoals we net handmatig deden voor dierenbescherming.nl).
+
+    category is een van: "ok", "geen_resultaten", "fout".
+    hint is een korte, mens-leesbare duiding -- bij "geen_resultaten"
+    een VERMOEDEN (nooit een zekerheid) of het om JavaScript-rendering
+    kan gaan.
+    """
+
+    result = test_source(source, limit=limit)
+
+    diagnosis = {
+        "source_id": getattr(source, "id", None),
+        "source_name": source.name,
+        "adapter": source.adapter,
+        "error": result["error"],
+        "count": result["count"],
+        "preview": result["preview"],
+        "category": None,
+        "hint": None,
+    }
+
+    if result["error"]:
+        diagnosis["category"] = "fout"
+        diagnosis["hint"] = _classify_error(result["error"])
+
+    elif result["count"] == 0:
+        diagnosis["category"] = "geen_resultaten"
+        diagnosis["hint"] = _suspect_js_rendering(source)
+
+    else:
+        diagnosis["category"] = "ok"
+
+    return diagnosis
+
+
+def _classify_error(error_message):
+
+    lowered = error_message.lower()
+
+    if "404" in lowered:
+        return "Pagina niet gevonden (404) -- klopt de URL nog?"
+
+    if "403" in lowered:
+        return "Toegang geweigerd (403) -- de site blokkeert mogelijk geautomatiseerde toegang."
+
+    if "timeout" in lowered or "timed out" in lowered:
+        return "Time-out -- de site reageerde niet op tijd."
+
+    if "onbekende adapter" in lowered:
+        return "De ingestelde adapter bestaat niet (meer) -- controleer de bron-instellingen."
+
+    if "json" in lowered:
+        return "Het settings-veld van deze bron bevat geen geldige JSON."
+
+    return "Zie de volledige foutmelding hiernaast."
+
+
+def _suspect_js_rendering(source):
+    """
+    Heuristiek, GEEN zekerheid: haalt de pagina nogmaals op (alleen
+    relevant bij nul resultaten) en kijkt of de HTML kenmerken van een
+    JavaScript-applicatie vertoont (weinig zichtbare tekst t.o.v. veel
+    <script>-tags, of bekende SPA-markers zoals id="root"). Dit is
+    dezelfde soort signaal die we bij dierenbescherming.nl handmatig
+    herkenden ("Geen resultaten gevonden"-placeholder + filter-widget
+    zonder daadwerkelijke data in de HTML).
+    """
+
+    try:
+        html = fetch_html(source.url)
+    except Exception:
+        return (
+            "Geen vacatures gevonden, en de pagina kon niet nogmaals "
+            "opgehaald worden om verder te duiden."
+        )
+
+    soup = BeautifulSoup(html, "lxml")
+
+    body = soup.find("body")
+    visible_text_length = len(body.get_text(strip=True)) if body else 0
+    script_count = len(soup.find_all("script"))
+
+    markers_found = [marker for marker in JS_RENDERING_MARKERS if marker in html]
+
+    if markers_found or (visible_text_length < MIN_VISIBLE_TEXT_FOR_STATIC_PAGE and script_count > 5):
+        return (
+            "Vermoedelijk JavaScript-rendering: deze pagina bevat weinig "
+            "zichtbare tekst en/of kenmerken van een JS-applicatie -- de "
+            "vacaturedata wordt waarschijnlijk pas door de browser "
+            "ingevuld en staat niet in de opgehaalde HTML. Zie "
+            "'Beperkingen' in de README."
+        )
+
+    return (
+        "Geen vacatures gevonden, maar geen duidelijk signaal van "
+        "JavaScript-rendering -- controleer de adapter-instellingen "
+        "(selectors/mode) via Analyseren op de bewerkpagina."
+    )
 
 
 def analyze(url):
@@ -259,7 +397,12 @@ def _detect_html_listing(soup, base_url):
     if result:
         return result
 
-    return _detect_via_headings(soup, base_url)
+    result = _detect_via_headings(soup, base_url)
+
+    if result:
+        return result
+
+    return _detect_via_common_classes(soup, base_url)
 
 
 def _detect_via_vacancy_links(soup, base_url):
@@ -302,6 +445,96 @@ def _detect_via_vacancy_links(soup, base_url):
     )
 
 
+TITLE_CLASS_HINTS = ["title", "titel", "naam", "name", "functie", "vacature-titel"]
+
+
+def _find_title_like_element(item_element):
+    """
+    Zoekt binnen item_element naar een element waarvan de class-naam
+    op een titel/naam-veld wijst (bv. class="title" of "vacature-titel"),
+    als tussenstap tussen "geen heading gevonden" en "dan maar de link
+    zelf als titel gebruiken" -- dat laatste levert vaak een linktekst
+    als "Bekijk"/"Lees meer" op i.p.v. de echte titel.
+    """
+
+    for element in item_element.find_all(True):
+
+        classes = element.get("class") or []
+        class_str = " ".join(classes).lower()
+
+        if any(hint in class_str for hint in TITLE_CLASS_HINTS):
+
+            text = element.get_text(" ", strip=True)
+
+            if text and len(text) <= MAX_TITLE_LENGTH:
+                return element
+
+    return None
+
+
+def _detect_via_common_classes(soup, base_url):
+    """
+    Derde en laatste fallback: probeert een klein aantal veelgebruikte
+    class-/tag-namen voor vacature-blokken (".vacancy", ".job",
+    ".vacature", "article") als KANDIDAAT-containers.
+
+    Belangrijk verschil met een blinde gok: dit wordt nooit direct
+    opgeslagen. Zodra een hint genoeg elementen oplevert (>= MIN_MATCHES),
+    wordt er nog steeds een titel/link binnen elk element gezocht en een
+    preview opgebouwd -- exact dezelfde verificatie-stap als de andere
+    twee strategieën. Levert de hint geen bruikbare titel/link op, dan
+    wordt de volgende hint geprobeerd; levert niets iets op, dan geeft
+    de Adapter Helper eerlijk "niets gevonden" terug in plaats van iets
+    te verzinnen.
+    """
+
+    for hint_selector in COMMON_ITEM_HINTS:
+
+        items = soup.select(hint_selector)
+
+        if len(items) < MIN_MATCHES:
+            continue
+
+        sample_item = items[0]
+
+        title_element = None
+
+        for tag_name in HEADING_TAGS:
+            title_element = sample_item.find(tag_name)
+            if title_element:
+                break
+
+        if title_element is None:
+            title_element = _find_title_like_element(sample_item)
+
+        if title_element is None:
+            title_element = sample_item.find("a")
+
+        if title_element is None:
+            continue
+
+        title_classes = title_element.get("class") or []
+
+        title_selector = (
+            title_element.name + "." + ".".join(title_classes)
+            if title_classes else title_element.name
+        )
+
+        url_from = "title_element" if title_element.name == "a" else "first_link_in_item"
+
+        result = _build_html_listing_result(
+            soup, base_url, sample_item, title_element,
+            title_selector, link_selector=("a" if url_from == "first_link_in_item" else title_selector),
+            url_from=url_from,
+            item_selector_override=hint_selector,
+        )
+
+        if result:
+            return result
+
+    return None
+
+
 def _detect_via_headings(soup, base_url):
     """
     Fallback-strategie: als er geen vacature-achtige linktekst te
@@ -341,17 +574,26 @@ def _detect_via_headings(soup, base_url):
 
 
 def _build_html_listing_result(soup, base_url, item_element, title_source_element,
-                                title_selector, link_selector, url_from):
+                                title_selector, link_selector, url_from,
+                                item_selector_override=None):
     """
-    Gedeelde postprocessing voor beide strategieën hierboven: bepaalt
+    Gedeelde postprocessing voor alle drie strategieën hierboven: bepaalt
     item_selector, detecteert locatie/datum, bouwt de preview op en
     het uiteindelijke resultaat-dict. url_from bepaalt of de URL van
     het titel-element zelf komt (vacancy-links-strategie) of van de
-    eerste link binnen het item (headings-strategie, want een kop
-    heeft zelf geen href).
+    eerste link binnen het item (headings/common-classes-strategie,
+    voor een kop of een generieke container die zelf geen href heeft).
+
+    item_selector_override: gebruikt door _detect_via_common_classes,
+    omdat daar de LOSSE hint (bv. ".vacature") de juiste selector is --
+    _css_selector_for(item_element) zou anders de volledige, mogelijk
+    item-specifieke classlist van precies dat ene voorbeeld-element
+    pakken (bv. ".vacature.featured" als toevallig het eerste
+    voorbeeld een extra statusklasse heeft), wat de andere items zou
+    missen.
     """
 
-    item_selector = _css_selector_for(item_element)
+    item_selector = item_selector_override or _css_selector_for(item_element)
 
     location_selector, date_selector = _detect_location_and_date_selectors(
         item_element, title_source_element
@@ -711,6 +953,9 @@ def _cap_settings_for_test(settings_json, limit):
 
 
 def _looks_like_vacancy_link(text, href):
+
+    if len(text) > MAX_TITLE_LENGTH:
+        return False
 
     haystack = (text + " " + href).lower()
 

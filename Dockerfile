@@ -11,6 +11,18 @@ RUN pip install --no-cache-dir \
     -r requirements.txt
 
 
+# --- Optioneel: adapters/browser_listing.py (JavaScript-gerenderde
+# vacaturesites, bv. via een headless Chromium-browser). Voegt
+# honderden MB's toe aan de image, dus standaard uitgeschakeld.
+# Ontkommentarieer onderstaande twee regels als je deze adapter wilt
+# gebruiken (en verwijder de eerste regel hieronder als je 'm alsnog
+# via requirements.txt wilt laten meelopen):
+#
+# COPY requirements-browser.txt .
+# RUN pip install --no-cache-dir -r requirements-browser.txt \
+#     && playwright install --with-deps chromium
+
+
 
 COPY . .
 
