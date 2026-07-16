@@ -11,6 +11,7 @@ from adapters import generic_links
 from adapters import html_listing
 from adapters import jsonld_listing
 from adapters import microdata_listing
+from adapters import browser_listing
 from adapters import cso_api
 from adapters.base import AdapterError
 
@@ -20,6 +21,7 @@ ADAPTERS = {
     "html_listing": html_listing,
     "jsonld_listing": jsonld_listing,
     "microdata_listing": microdata_listing,
+    "browser_listing": browser_listing,
     "cso_api": cso_api,
 }
 

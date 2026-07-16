@@ -78,6 +78,63 @@ De Adapter Helper probeert dit automatisch als tweede optie (na
 JSON-LD, vóór html_listing) -- meestal hoef je dit dus niet handmatig
 te configureren.
 
+## Sites die vacatures via JavaScript laden (adapter: `browser_listing`)
+
+Gebruik dit ALLEEN als de andere adapters aantoonbaar niets vinden --
+check dit via **Systeem → Diagnose**, die meldt "vermoedelijk
+JavaScript-rendering" als de statische HTML leeg lijkt. Vereist een
+losse installatiestap, zie `requirements-browser.txt` en de docstring
+in `adapters/browser_listing.py`.
+
+```json
+{
+    "start_url": "https://voorbeeld.nl/vacatures/",
+    "parse_as": "html_listing",
+    "wait_selector": ".vacature-item",
+    "selectors": {
+        "item": ".vacature-item",
+        "title": "a.vacature-titel",
+        "location": ".vacature-locatie"
+    },
+    "crawl_delay": 5
+}
+```
+
+`parse_as` bepaalt welke bestaande parse-logica op de door de browser
+gerenderde HTML wordt losgelaten: `"html_listing"` (met `selectors`,
+zoals hierboven), `"jsonld_listing"` of `"microdata_listing"` (als de
+site na het renderen alsnog schema.org-data toevoegt, wat regelmatig
+voorkomt bij JS-frameworks). `wait_selector` is optioneel maar
+aanbevolen: de adapter wacht tot dat element verschijnt voordat hij de
+pagina "leest", in plaats van blind een vaste tijd te wachten
+(`wait_ms`, standaard 3000ms, als fallback).
+
+### Sites met een cookiebanner die eerst weg moet
+
+Sommige sites (bv. sites op het Jobtoolz-platform) laden hun
+vacature-widget pas ná het accepteren van cookies. Gebruik dan
+`consent_selector` -- een CSS-selector voor de "Accepteren"-knop, die
+vóór `wait_selector` geklikt wordt:
+
+```json
+{
+  "start_url": "https://voorbeeld.nl/vacatures/",
+  "parse_as": "html_listing",
+  "consent_selector": "#cookie-accept",
+  "wait_selector": ".vacature-item",
+  "selectors": {
+    "item": ".vacature-item",
+    "title": "a.vacature-titel"
+  }
+}
+```
+
+Zoek de juiste `consent_selector` via devtools: rechtermuisklik op de
+"Accepteren"-knop van de cookiebanner → Inspecteren → noteer de
+class/id. Wordt de knop niet gevonden binnen 5 seconden, dan gaat de
+adapter gewoon door (geen harde fout) -- controleer in dat geval of de
+selector klopt via "Bron testen".
+
 ## Werken bij Gemeenten, Culturele Vacatures, Werken voor Cultuur,
 ## OneWorld, Nationale Vacaturebank (adapter: `html_listing`)
 

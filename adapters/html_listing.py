@@ -31,9 +31,10 @@ Voorbeeld Source.settings:
     "exclude_keywords": ["stage", "vrijwilliger"]
 }
 
-Alleen "selectors.item" en "selectors.title" zijn verplicht.
-"selectors.link" mag weggelaten worden -- dan wordt de title-selector
-zelf gebruikt om een href te zoeken.
+Alleen "selectors.item" is verplicht, plus minstens één van
+"selectors.title"/"selectors.link" (de ander valt dan terug op
+hetzelfde element -- handig voor simpele lijsten zoals
+{"item": "ul > li", "link": "a"} zonder aparte titel-markup).
 
 "categories" wordt momenteel niet automatisch verwerkt (elke site
 geeft categorieën op een andere manier door, meestal als onderdeel
@@ -98,15 +99,29 @@ def parse(raw_pages, source):
     selectors = settings.get("selectors", {})
 
     item_selector = selectors.get("item")
-    title_selector = selectors.get("title")
 
-    if not item_selector or not title_selector:
+    if not item_selector:
         raise AdapterError(
             f"'{source.name}': html_listing vereist minstens "
-            "settings.selectors.item en settings.selectors.title"
+            "settings.selectors.item"
         )
 
-    link_selector = selectors.get("link", title_selector)
+    title_selector = selectors.get("title")
+    link_selector = selectors.get("link")
+
+    if not title_selector and not link_selector:
+        raise AdapterError(
+            f"'{source.name}': html_listing vereist settings.selectors.title "
+            "en/of settings.selectors.link (minstens één van de twee -- "
+            "de ander wordt dan hetzelfde element gebruikt)"
+        )
+
+    # auto-fallback: title en link mogen naar hetzelfde element wijzen.
+    # Bijvoorbeeld {"item": "ul > li", "link": "a"} zonder aparte
+    # "title" is een veelvoorkomend, geldig patroon (zie Amare/HNT).
+    title_selector = title_selector or link_selector
+    link_selector = link_selector or title_selector
+
     location_selector = selectors.get("location")
     date_selector = selectors.get("date")
 

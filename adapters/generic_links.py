@@ -23,11 +23,20 @@ from scraper import fetch_html
 
 DEFAULT_KEYWORDS = [
     "vacature",
+    "vacancy",
     "functie",
     "werken",
     "job",
     "career",
 ]
+
+MAX_TITLE_LENGTH = 120
+# Een echte vacaturetitel is een paar woorden. Links die een hele
+# alinea marketingtekst als klikbare tekst hebben (bv. een "Lees
+# verder"-kaart die toevallig naar een URL met "...-functies" erin
+# wijst) worden anders onterecht als vacature aangemerkt zodra het
+# keyword toevallig ergens in de URL voorkomt. Zie ook
+# adapter_helper._looks_like_vacancy_link, die dezelfde grens hanteert.
 
 
 CAPABILITIES = {
@@ -57,6 +66,9 @@ def parse(raw_content, source):
         url = link["href"]
 
         if not title:
+            continue
+
+        if len(title) > MAX_TITLE_LENGTH:
             continue
 
         combined = (title + " " + url).lower()
