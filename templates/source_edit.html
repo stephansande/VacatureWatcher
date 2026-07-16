@@ -341,6 +341,7 @@ Adapter
 <option value="html_listing" {% if form.adapter == "html_listing" %}selected{% endif %}>html_listing</option>
 <option value="jsonld_listing" {% if form.adapter == "jsonld_listing" %}selected{% endif %}>jsonld_listing</option>
 <option value="microdata_listing" {% if form.adapter == "microdata_listing" %}selected{% endif %}>microdata_listing</option>
+<option value="browser_listing" {% if form.adapter == "browser_listing" %}selected{% endif %}>browser_listing (JS-sites, vereist Playwright)</option>
 <option value="cso_api" {% if form.adapter == "cso_api" %}selected{% endif %}>cso_api</option>
 </select>
 
@@ -364,6 +365,19 @@ Alle adapter-specifieke configuratie (selectors, paginering,
 categorieën, keywords, CSO-filters) hoort hier -- zie
 adapters/EXAMPLES.md voor de vorm per adapter.
 </p>
+
+<p class="muted">
+Minimaal voorbeeld voor <code>html_listing</code> (alleen <code>item</code>
++ <code>link</code> is genoeg; <code>title</code> mag weg als de link zelf
+de titeltekst bevat):
+</p>
+<pre style="background:#eee; padding:8px; border-radius:4px; font-size:12px;">{
+  "start_url": "https://voorbeeld.nl/vacatures/",
+  "selectors": {
+    "item": "li",
+    "link": "a"
+  }
+}</pre>
 
 </details>
 

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Alle vacatures
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+Alle vacatures
+</h1>
+
+<p class="muted">
+{{ total_sources }} bronnen, {{ total_vacancies }} actieve vacatures in totaal.
+Alleen actieve vacatures worden getoond (verdwenen vacatures blijven
+zichtbaar via de aparte vacaturepagina per bron).
+</p>
+
+
+<table>
+
+<tr>
+<th style="width:260px;">Bron</th>
+<th>Actuele vacatures</th>
+</tr>
+
+{% for row in rows %}
+
+<tr>
+
+<td>
+
+<div style="font-weight:600;">
+<a href="/employer/{{ row.source.id }}">{{ row.source.name }}</a>
+</div>
+
+<div class="muted" style="font-size:11.5px; word-break:break-all;">
+{{ row.source.url }}
+</div>
+
+{% if row.source.type == "jobboard" %}
+<span class="badge badge-jobboard">Vacatureplatform</span>
+{% else %}
+<span class="badge badge-employer">Werkgever</span>
+{% endif %}
+
+{% if row.vacancies %}
+<span class="badge status-ok" style="border-radius:10px; padding:2px 8px;">{{ row.vacancies | length }} gevonden</span>
+{% else %}
+<span class="badge" style="background:#d97706; border-radius:10px; padding:2px 8px;">geen data</span>
+{% endif %}
+
+</td>
+
+<td>
+
+{% if row.vacancies %}
+
+<ul style="margin:0; padding:0; list-style:none;">
+{% for vacancy in row.vacancies %}
+<li style="padding:4px 0; border-bottom:1px dashed #eee;">
+{% if vacancy.url %}
+<a href="{{ vacancy.url }}" target="_blank">{{ vacancy.title }}</a>
+{% else %}
+{{ vacancy.title }}
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+
+{% else %}
+
+<span class="muted">
+Nog geen (actieve) vacatures gevonden voor deze bron. Gebruik
+<a href="/employer/{{ row.source.id }}/test">Bron testen</a> of
+<a href="/system/diagnose">Systeem → Diagnose</a> om te zien waarom.
+</span>
+
+{% endif %}
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+
+{% endblock %}

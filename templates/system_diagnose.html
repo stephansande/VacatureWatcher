@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Systeem &raquo; Bronnen diagnosticeren
+{% endblock %}
+
+
+
+{% block content %}
+
+
+<h1>
+Systeem &raquo; Bronnen diagnosticeren
+</h1>
+
+<p class="muted">
+Test alle {{ total }} bronnen in één keer (zoals "Bron testen", maar
+dan voor alles tegelijk). Dit kan even duren -- elke bron wordt na
+elkaar opgehaald.
+</p>
+
+
+<div class="result-box">
+<p>
+<span class="badge status-ok">OK: {{ summary.ok }}</span>
+&nbsp;
+<span class="badge" style="background:#d97706;">Geen resultaten: {{ summary.geen_resultaten }}</span>
+&nbsp;
+<span class="badge status-error">Fout: {{ summary.fout }}</span>
+</p>
+</div>
+
+
+{% for d in diagnoses %}
+
+<div class="result-box {% if d.category == 'ok' %}status-ok{% elif d.category == 'fout' %}status-error{% endif %}">
+
+<h4>
+<a href="/employer/{{ d.source_id }}">{{ d.source_name }}</a>
+&nbsp;
+<code>{{ d.adapter }}</code>
+&nbsp;
+{% if d.category == 'ok' %}
+<span class="badge status-ok">OK -- {{ d.count }} gevonden</span>
+{% elif d.category == 'geen_resultaten' %}
+<span class="badge" style="background:#d97706;">Geen resultaten</span>
+{% else %}
+<span class="badge status-error">Fout</span>
+{% endif %}
+</h4>
+
+{% if d.category == 'fout' %}
+<p style="color:#b91c1c;">{{ d.error }}</p>
+<p class="muted">{{ d.hint }}</p>
+{% elif d.category == 'geen_resultaten' %}
+<p class="muted">{{ d.hint }}</p>
+{% else %}
+<ul>
+{% for item in d.preview[:3] %}
+<li><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<a class="button" href="/employer/{{ d.source_id }}/edit">Bron bewerken</a>
+
+</div>
+
+{% endfor %}
+
+
+{% endblock %}
