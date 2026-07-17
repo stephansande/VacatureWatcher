@@ -316,6 +316,28 @@ Ook geen enkele vacature-achtige link gevonden op deze pagina.
 {% endif %}
 </div>
 
+
+{% if analysis.js_rendering_hint %}
+
+<div class="result-box status-error">
+<h4>
+5. Geen van bovenstaande gevonden &mdash; mogelijk JavaScript nodig
+</h4>
+<p>
+{{ analysis.js_rendering_hint }}
+</p>
+<p class="muted">
+Kies hieronder handmatig adapter <code>browser_listing</code> (vereist
+Playwright, zie <code>requirements-browser.txt</code>) en stel
+<code>wait_selector</code>/<code>selectors</code> in -- zie
+adapters/EXAMPLES.md voor een compleet voorbeeld. De Adapter Helper
+kan dit niet automatisch testen (dat zou een browser moeten opstarten
+tijdens elke analyse), dus dit blijft handmatig instellen.
+</p>
+</div>
+
+{% endif %}
+
 {% endif %}
 
 {% endif %}
