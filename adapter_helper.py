@@ -437,7 +437,12 @@ def _detect_html_listing(soup, base_url):
     if result:
         return result
 
-    return _detect_via_common_classes(soup, base_url)
+    result = _detect_via_common_classes(soup, base_url)
+
+    if result:
+        return result
+
+    return _detect_via_section_heading(soup, base_url)
 
 
 def _detect_via_vacancy_links(soup, base_url):
@@ -467,14 +472,52 @@ def _detect_via_vacancy_links(soup, base_url):
     if not best:
         return None
 
-    anchor_classes = best["anchor_element"].get("class") or []
+    item_element = best["item_element"]
+    anchor_element = best["anchor_element"]
+
+    # De link zelf heet vaak "Bekijk de vacature"/"Lees meer" -- dat is
+    # geen bruikbare titel. Zoek eerst naar een betere titelbron binnen
+    # hetzelfde item (een kop, of een element met een titel-achtige
+    # class) voordat we terugvallen op de linktekst zelf.
+    better_title_element = None
+
+    for tag_name in HEADING_TAGS:
+        better_title_element = item_element.find(tag_name)
+        if better_title_element:
+            break
+
+    if better_title_element is None:
+        better_title_element = _find_title_like_element(item_element)
+
+    if better_title_element and better_title_element is not anchor_element:
+
+        title_classes = better_title_element.get("class") or []
+
+        title_selector = (
+            better_title_element.name + "." + ".".join(title_classes)
+            if title_classes else better_title_element.name
+        )
+
+        anchor_classes = anchor_element.get("class") or []
+
+        link_selector = (
+            "a." + ".".join(anchor_classes) if anchor_classes else "a"
+        )
+
+        return _build_html_listing_result(
+            soup, base_url, item_element, better_title_element,
+            title_selector, link_selector=link_selector,
+            url_from="first_link_in_item",
+        )
+
+    anchor_classes = anchor_element.get("class") or []
 
     title_selector = (
         "a." + ".".join(anchor_classes) if anchor_classes else "a"
     )
 
     return _build_html_listing_result(
-        soup, base_url, best["item_element"], best["anchor_element"],
+        soup, base_url, item_element, anchor_element,
         title_selector, link_selector=title_selector,
         url_from="title_element",
     )
@@ -570,6 +613,156 @@ def _detect_via_common_classes(soup, base_url):
     return None
 
 
+SECTION_HEADING_KEYWORDS = [
+    "vacature",
+    "vacatures",
+    "openstaande vacatures",
+    "carrière",
+    "carriere",
+    "banen",
+    "werken bij",
+]
+
+
+def _detect_via_section_heading(soup, base_url):
+    """
+    Vierde en laatste fallback: een kopje dat ZELF een vacature-woord
+    bevat (bv. "Vacatures", "Openstaande vacatures bij Het Nationale
+    Theater"), gevolgd door een PLATTE lijst van links zonder aparte
+    titel-opmaak per item en zonder vacature-keyword in de link zelf
+    -- exact het patroon bij Amare en Het Nationale Theater: één
+    kopje, daaronder gewoon een <ul><li><a>Functienaam</a></li></ul>.
+
+    Dit is de laatste strategie omdat-ie het minst specifiek is: elke
+    link na een "Vacatures"-kopje wordt als kandidaat gezien, tot de
+    eerstvolgende kop van gelijk of hoger niveau. Vandaar ook de
+    preview-verificatie via _build_html_listing_result, net als bij
+    de andere strategieën -- nooit blind opslaan.
+    """
+
+    for tag_name in ("h1", "h2", "h3", "h4"):
+
+        for heading in soup.find_all(tag_name):
+
+            heading_text = heading.get_text(" ", strip=True).lower()
+
+            if not any(keyword in heading_text for keyword in SECTION_HEADING_KEYWORDS):
+                continue
+
+            heading_level = int(heading.name[1])
+
+            links = _collect_links_after_heading(heading, heading_level)
+
+            short_links = [
+                link for link in links
+                if link.get_text(strip=True)
+                and len(link.get_text(strip=True)) <= MAX_TITLE_LENGTH
+            ]
+
+            if len(short_links) < MIN_MATCHES_FALLBACK:
+                continue
+
+            sample_link = short_links[0]
+
+            item_element = sample_link.find_parent("li") or sample_link.parent
+
+            if item_element is None:
+                continue
+
+            anchor_classes = sample_link.get("class") or []
+
+            title_selector = (
+                "a." + ".".join(anchor_classes) if anchor_classes else "a"
+            )
+
+            item_selector = _scoped_item_selector(item_element)
+
+            # Eerlijkheidscheck: de ECHTE adapter gebruikt straks gewoon
+            # soup.select(item_selector) over de HELE pagina, zonder
+            # besef van "alleen na deze kop". Als dat aanzienlijk meer
+            # elementen oplevert dan de sectie-afgebakende lijst hier,
+            # is de selector te generiek (ontdekt via een echte test:
+            # een kale "p"-selector pakte ook een "Neem contact
+            # op"-link in een heel andere sectie mee) -- dan liever
+            # niets voorstellen dan een misleidend schone preview.
+            unscoped_matches = soup.select(item_selector)
+
+            if len(unscoped_matches) > len(short_links):
+                continue
+
+            result = _build_html_listing_result(
+                soup, base_url, item_element, sample_link,
+                title_selector, link_selector=title_selector,
+                url_from="title_element",
+                item_selector_override=item_selector,
+            )
+
+            if result:
+                return result
+
+    return None
+
+
+def _scoped_item_selector(item_element):
+    """
+    Probeert een item-selector te vinden die niet ALLEEN op de kale
+    tag (bv. "p"/"li") steunt, door een voorouder met een eigen
+    id/class te zoeken en de selector daaraan te koppelen (bv.
+    "#vacatures-sectie li" i.p.v. kaal "li"). Dat voorkomt dat de
+    selector elders op de pagina ook niet-verwante content matcht.
+    Valt terug op de kale tag-selector als geen enkele voorouder
+    binnen een paar niveaus een id/class heeft.
+    """
+
+    bare_selector = item_element.name
+
+    parent = item_element.parent
+    depth = 0
+
+    while parent is not None and depth < 3:
+
+        element_id = parent.get("id")
+
+        if element_id:
+            return f"#{element_id} {bare_selector}"
+
+        classes = parent.get("class") or []
+
+        if classes:
+            return "." + ".".join(classes) + " " + bare_selector
+
+        parent = parent.parent
+        depth += 1
+
+    return bare_selector
+
+
+def _collect_links_after_heading(heading, heading_level):
+    """
+    Verzamelt <a href>-elementen die in documentvolgorde NA 'heading'
+    komen, tot de eerstvolgende kop van gelijk of hoger niveau (of het
+    einde van het document). find_all_next() volgt documentvolgorde,
+    niet DOM-nesting -- de kop en de lijst hoeven geen broers/zussen
+    te zijn, wat bij dit patroon vaak ook niet zo is.
+    """
+
+    links = []
+
+    for element in heading.find_all_next():
+
+        if element.name in ("h1", "h2", "h3", "h4"):
+
+            next_level = int(element.name[1])
+
+            if next_level <= heading_level:
+                break
+
+        if element.name == "a" and element.get("href"):
+            links.append(element)
+
+    return links
+
+
 def _detect_via_headings(soup, base_url):
     """
     Fallback-strategie: als er geen vacature-achtige linktekst te
@@ -610,14 +803,14 @@ def _detect_via_headings(soup, base_url):
 
 def _build_html_listing_result(soup, base_url, item_element, title_source_element,
                                 title_selector, link_selector, url_from,
-                                item_selector_override=None):
+                                item_selector_override=None, items_override=None):
     """
-    Gedeelde postprocessing voor alle drie strategieën hierboven: bepaalt
+    Gedeelde postprocessing voor alle strategieën hierboven: bepaalt
     item_selector, detecteert locatie/datum, bouwt de preview op en
     het uiteindelijke resultaat-dict. url_from bepaalt of de URL van
     het titel-element zelf komt (vacancy-links-strategie) of van de
-    eerste link binnen het item (headings/common-classes-strategie,
-    voor een kop of een generieke container die zelf geen href heeft).
+    eerste link binnen het item (headings/common-classes/sectiekop-
+    strategie, voor een kop of generieke container zonder eigen href).
 
     item_selector_override: gebruikt door _detect_via_common_classes,
     omdat daar de LOSSE hint (bv. ".vacature") de juiste selector is --
@@ -626,6 +819,17 @@ def _build_html_listing_result(soup, base_url, item_element, title_source_elemen
     pakken (bv. ".vacature.featured" als toevallig het eerste
     voorbeeld een extra statusklasse heeft), wat de andere items zou
     missen.
+
+    items_override: gebruikt door _detect_via_section_heading. Die
+    strategie vindt items via documentvolgorde ná een sectiekop
+    (bv. "Vacatures"), niet via een CSS-selector die de hele pagina
+    ondubbelzinnig afbakent -- de items delen vaak een generieke tag
+    zonder class (bv. gewoon "li" of "p"). Een kale `soup.select("p")`
+    zou dan OOK niet-verwante alinea's elders op de pagina meepakken
+    (ontdekt via een echte test: een "Neem contact op"-link in een
+    aparte sectie werd zo onterecht meegenomen). Met items_override
+    wordt de preview opgebouwd uit precies de al-afgebakende lijst,
+    niet uit een nieuwe paginabrede zoekopdracht.
     """
 
     item_selector = item_selector_override or _css_selector_for(item_element)
@@ -634,7 +838,7 @@ def _build_html_listing_result(soup, base_url, item_element, title_source_elemen
         item_element, title_source_element
     )
 
-    items = soup.select(item_selector)
+    items = items_override if items_override is not None else soup.select(item_selector)
 
     preview = []
 
