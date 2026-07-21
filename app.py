@@ -22,7 +22,9 @@ from database import (
 
 from models import (
     Source,
-    ChangeLog
+    ChangeLog,
+    Vacancy,
+    ALL_WEEKDAYS
 )
 
 from services.scheduler_service import (
@@ -68,6 +70,20 @@ def _load_analysis_from_form():
         return None
 
 
+CANDIDATE_KEY_BY_ADAPTER = {
+    "jsonld_listing": "jsonld",
+    "microdata_listing": "microdata",
+}
+# adapter_helper.analyze() gebruikt "jsonld"/"microdata" als sleutel
+# voor de kandidaat-preview, maar de adapter-registry (en dus de
+# "apply:<adapter>"-knoppen) heet ze "jsonld_listing"/"microdata_listing".
+# Zonder deze mapping keek _apply_suggestion() hieronder altijd mis
+# (analysis.get("jsonld_listing") bestaat niet), waardoor "Gebruik
+# deze instellingen" voor die twee kandidaten stil faalde -- dit zat
+# al zo in de oorspronkelijke skeleton, vóór de Website
+# Detective-aanpassingen.
+
+
 def _apply_suggestion(action, analysis, form_data):
     """
     Verwerkt een "Gebruik deze instellingen"-knop: zet form_data['adapter']
@@ -83,9 +99,25 @@ def _apply_suggestion(action, analysis, form_data):
         form_data["settings"] = ""
         return
 
-    if analysis and analysis.get(chosen_adapter):
+    if not analysis:
+        return
 
-        suggestion = analysis[chosen_adapter].get("suggested_settings")
+    # De aanbevolen adapter heeft altijd recommended_settings (ook
+    # greenhouse, dat geen aparte candidate-preview met
+    # suggested_settings heeft zoals jsonld/microdata/html_listing) --
+    # check die eerst.
+    if chosen_adapter == analysis.get("recommendation") and analysis.get("recommended_settings"):
+        form_data["settings"] = json.dumps(
+            analysis["recommended_settings"], indent=2, ensure_ascii=False
+        )
+        return
+
+    candidate_key = CANDIDATE_KEY_BY_ADAPTER.get(chosen_adapter, chosen_adapter)
+    candidate = analysis.get(candidate_key)
+
+    if candidate:
+
+        suggestion = candidate.get("suggested_settings")
 
         if suggestion:
             form_data["settings"] = json.dumps(
@@ -153,6 +185,7 @@ def _render_source_editor(source=None):
             "settings": "",
             "keywords": "",
             "check_interval": "daily",
+            "check_days": list(ALL_WEEKDAYS),
         }
     else:
         form_data = {
@@ -163,6 +196,7 @@ def _render_source_editor(source=None):
             "settings": source.settings or "",
             "keywords": source.keywords or "",
             "check_interval": source.check_interval,
+            "check_days": source.check_days_list,
         }
 
     analysis = None
@@ -180,6 +214,12 @@ def _render_source_editor(source=None):
         form_data["settings"] = request.form.get("settings", "")
         form_data["keywords"] = request.form.get("keywords", "")
         form_data["check_interval"] = request.form.get("check_interval", "daily")
+        form_data["check_days"] = request.form.getlist("check_days") or list(ALL_WEEKDAYS)
+        # getlist(): checkboxes met dezelfde name komen zo allemaal
+        # binnen. Leeg (niets aangevinkt) valt terug op "alle dagen",
+        # zodat een gebruiker een bron niet per ongeluk stilletjes
+        # helemaal uitzet door alle vinkjes weg te halen -- zie ook
+        # Source.check_days_list-setter in models.py.
 
         analysis = _load_analysis_from_form()
 
@@ -188,7 +228,8 @@ def _render_source_editor(source=None):
             if not form_data["url"]:
                 error = "Vul eerst een URL in om te analyseren."
             else:
-                analysis = run_adapter_helper(form_data["url"])
+                force_refresh = request.form.get("force_refresh") == "1"
+                analysis = run_adapter_helper(form_data["url"], force_refresh=force_refresh)
 
         elif action.startswith("apply:"):
 
@@ -230,6 +271,7 @@ def _render_source_editor(source=None):
                         keywords=form_data["keywords"] or None,
                         check_interval=form_data["check_interval"],
                     )
+                    source.check_days_list = form_data["check_days"]
 
                     db.session.add(source)
 
@@ -242,6 +284,7 @@ def _render_source_editor(source=None):
                     source.settings = form_data["settings"] or None
                     source.keywords = form_data["keywords"] or None
                     source.check_interval = form_data["check_interval"]
+                    source.check_days_list = form_data["check_days"]
 
                 db.session.commit()
 
@@ -258,6 +301,7 @@ def _render_source_editor(source=None):
         info=info,
         is_new=is_new,
         examples=EXAMPLE_SOURCES,
+        all_weekdays=ALL_WEEKDAYS,
     )
 
 
@@ -348,6 +392,45 @@ def create_app():
             rows=rows,
             total_sources=len(rows),
             total_vacancies=total_vacancies,
+        )
+
+
+
+    @app.route("/vacatures/tijdlijn")
+    @login_required
+    def vacatures_tijdlijn():
+        """
+        Chronologisch overzicht (datum -- vacature -- bron) over alle
+        bronnen heen, nieuwste eerst. Aanvulling op /vacatures
+        hierboven (die per bron groepeert) -- hier staat juist de
+        volgorde waarin vacatures zijn verschenen centraal, ongeacht
+        welke bron erbij hoort.
+
+        Toont standaard alleen actieve vacatures; ?toon=alle laat ook
+        verdwenen vacatures zien (met een "Verdwenen"-badge en de
+        datum waarop ze voor het laatst zijn gezien).
+        """
+
+        toon_alles = request.args.get("toon") == "alle"
+
+        query = Vacancy.query
+
+        if not toon_alles:
+            query = query.filter_by(active=True)
+
+        vacancies = (
+            query
+            .join(Source, Vacancy.employer_id == Source.id)
+            .order_by(Vacancy.first_seen.desc())
+            .limit(200)
+            .all()
+        )
+
+        return render_template(
+            "vacatures_tijdlijn.html",
+            vacancies=vacancies,
+            toon_alles=toon_alles,
+            total=len(vacancies),
         )
 
 

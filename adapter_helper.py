@@ -68,8 +68,12 @@ from adapters.jsonld_listing import extract_job_postings
 from adapters.microdata_listing import extract_job_posting_elements, read_itemprop_text, read_itemprop_url
 from adapters.base import load_settings, get_keyword_filters, apply_keyword_filter, AdapterError
 
+import site_fingerprint
+from adapters import greenhouse
+
 
 MIN_MATCHES = 3
+MIN_MATCHES_FALLBACK = 2
 MAX_ANCESTOR_LEVELS = 4
 PREVIEW_SIZE = 8
 TEST_PREVIEW_LIMIT = 5
@@ -119,6 +123,16 @@ LOCATION_CLASS_HINTS = ["locat", "plaats", "stad", "regio", "location", "city"]
 PAGINATION_TEXT_HINTS = ["volgende", "next", "verder", "meer laden"]
 PAGINATION_QUERY_KEYS = ["page", "pagina", "p"]
 
+UTILITY_CLASS_PATTERN = re.compile(
+    r"^(mb|mt|ml|mr|mx|my|p|pb|pt|pl|pr|px|py|w|h|max-w|max-h|min-w|min-h|"
+    r"border|text|bg|flex|grid|justify|items|content|self|gap|rounded|shadow|"
+    r"font|leading|tracking|opacity|z|order|col|row|divide|space)"
+    r"(-|$)"
+)
+# herkent Tailwind-achtige utility-classnamen (bv. "mb-3", "border-b",
+# "justify-between") -- gebruikt om zulke containers als laatste
+# redmiddel te behandelen in _find_best_ancestor_signature, zie daar.
+
 
 JS_RENDERING_MARKERS = [
     'id="root"',
@@ -164,12 +178,39 @@ def diagnose_source(source, limit=TEST_PREVIEW_LIMIT):
 
     elif result["count"] == 0:
         diagnosis["category"] = "geen_resultaten"
-        diagnosis["hint"] = _suspect_js_rendering(source)
+        diagnosis["hint"] = _suspect_js_rendering_for_url(source.url)
 
     else:
         diagnosis["category"] = "ok"
 
     return diagnosis
+
+
+def _suspect_js_rendering_for_url(url):
+    """
+    Wrapper om _suspect_js_rendering() te gebruiken vanuit
+    diagnose_source(), waar de HTML nog niet is opgehaald (in
+    tegenstelling tot analyze(), dat 'm al in huis heeft).
+    """
+
+    try:
+        html = fetch_html(url)
+    except Exception:
+        return (
+            "Geen vacatures gevonden, en de pagina kon niet nogmaals "
+            "opgehaald worden om verder te duiden."
+        )
+
+    hint = _suspect_js_rendering(html)
+
+    if hint:
+        return hint
+
+    return (
+        "Geen vacatures gevonden, maar geen duidelijk signaal van "
+        "JavaScript-rendering -- controleer de adapter-instellingen "
+        "(selectors/mode) via Analyseren op de bewerkpagina."
+    )
 
 
 def _classify_error(error_message):
@@ -194,24 +235,21 @@ def _classify_error(error_message):
     return "Zie de volledige foutmelding hiernaast."
 
 
-def _suspect_js_rendering(source):
+def _suspect_js_rendering(html):
     """
-    Heuristiek, GEEN zekerheid: haalt de pagina nogmaals op (alleen
-    relevant bij nul resultaten) en kijkt of de HTML kenmerken van een
-    JavaScript-applicatie vertoont (weinig zichtbare tekst t.o.v. veel
-    <script>-tags, of bekende SPA-markers zoals id="root"). Dit is
-    dezelfde soort signaal die we bij dierenbescherming.nl handmatig
-    herkenden ("Geen resultaten gevonden"-placeholder + filter-widget
-    zonder daadwerkelijke data in de HTML).
-    """
+    Heuristiek, GEEN zekerheid: kijkt of de (al opgehaalde) HTML
+    kenmerken van een JavaScript-applicatie vertoont (weinig zichtbare
+    tekst t.o.v. veel <script>-tags, of bekende SPA-markers zoals
+    id="root"). Dit is dezelfde soort signaal die we bij
+    dierenbescherming.nl en werkbijdunea.nl handmatig herkenden
+    ("Geen resultaten gevonden"-placeholder / onuitgevoerde
+    template-placeholders zoals "{{ ItemsCount }}", zonder
+    daadwerkelijke vacaturedata in de HTML).
 
-    try:
-        html = fetch_html(source.url)
-    except Exception:
-        return (
-            "Geen vacatures gevonden, en de pagina kon niet nogmaals "
-            "opgehaald worden om verder te duiden."
-        )
+    Gebruikt door zowel diagnose_source() (bulk-diagnose) als
+    analyze() (Adapter Helper) -- op dezelfde, al opgehaalde HTML, dus
+    geen dubbele request naar de doelsite.
+    """
 
     soup = BeautifulSoup(html, "lxml")
 
@@ -230,14 +268,90 @@ def _suspect_js_rendering(source):
             "'Beperkingen' in de README."
         )
 
-    return (
-        "Geen vacatures gevonden, maar geen duidelijk signaal van "
-        "JavaScript-rendering -- controleer de adapter-instellingen "
-        "(selectors/mode) via Analyseren op de bewerkpagina."
+    return None
+
+
+def _detect_meta_generator(soup):
+    """Leest <meta name="generator">, indien aanwezig. Puur signaal."""
+
+    tag = soup.find("meta", attrs={"name": "generator"})
+
+    if tag and tag.get("content"):
+        return tag["content"].strip()
+
+    return None
+
+
+def _detect_script_domains(soup, base_url):
+    """Unieke externe scriptbron-hostnamen. Puur signaal."""
+
+    own_domain = urlparse(base_url).netloc.lower()
+    domains = set()
+
+    for script in soup.find_all("script", src=True):
+
+        parsed = urlparse(urljoin(base_url, script["src"]))
+        domain = parsed.netloc.lower()
+
+        if domain and domain != own_domain:
+            domains.add(domain)
+
+    return sorted(domains)
+
+
+def _gather_signals(html, url, soup=None):
+    """Verzamelt ruwe features, zonder al een aanbeveling te maken."""
+
+    if soup is None:
+        soup = BeautifulSoup(html, "lxml")
+
+    return {
+        "url": url,
+        "jsonld": _detect_jsonld(html, url),
+        "microdata": _detect_microdata(html, url),
+        "html_listing": _detect_html_listing(soup, url),
+        "generic_links": _detect_generic_links(html, url),
+        "pagination": _detect_pagination(soup, url),
+        "meta_generator": _detect_meta_generator(soup),
+        "script_domains": _detect_script_domains(soup, url),
+        "js_rendering_hint": _suspect_js_rendering(html),
+    }
+
+
+def _classify(signals):
+    """Beslist, puur op basis van signalen, welke adapter wint."""
+
+    if greenhouse.matches_fingerprint(signals.get("url"), signals.get("script_domains")):
+        return {
+            "recommendation": "greenhouse",
+            "confidence": site_fingerprint.confidence_for("greenhouse"),
+            "js_rendering_hint": None,
+        }
+
+    if signals.get("jsonld"):
+        recommendation = "jsonld_listing"
+    elif signals.get("microdata"):
+        recommendation = "microdata_listing"
+    elif signals.get("html_listing"):
+        recommendation = "html_listing"
+    elif signals.get("generic_links"):
+        recommendation = "generic_links"
+    else:
+        recommendation = None
+
+    confidence = (
+        site_fingerprint.confidence_for(recommendation)
+        if recommendation else None
     )
 
+    return {
+        "recommendation": recommendation,
+        "confidence": confidence,
+        "js_rendering_hint": signals.get("js_rendering_hint") if recommendation is None else None,
+    }
 
-def analyze(url):
+
+def analyze(url, force_refresh=False):
     """
     Voert alle detecties uit voor één URL. Geeft altijd een dict terug
     (nooit een exception) zodat de aanroepende route dit veilig direct
@@ -252,8 +366,25 @@ def analyze(url):
         "html_listing": None,
         "generic_links": None,
         "pagination": None,
+        "meta_generator": None,
+        "script_domains": [],
+        "js_rendering_hint": None,
         "recommendation": None,
+        "from_cache": False,
+        "cache_confidence": None,
+        "cached_settings": None,
+        "recommended_settings": None,
     }
+
+    cached = None if force_refresh else site_fingerprint.lookup(url)
+
+    if cached and site_fingerprint.is_fresh(cached):
+        result["recommendation"] = cached.adapter
+        result["from_cache"] = True
+        result["cache_confidence"] = cached.confidence
+        result["cached_settings"] = json.loads(cached.settings) if cached.settings else None
+        result["recommended_settings"] = result["cached_settings"]
+        return result
 
     try:
         html = fetch_html(url)
@@ -263,39 +394,62 @@ def analyze(url):
 
     soup = BeautifulSoup(html, "lxml")
 
-    result["jsonld"] = _detect_jsonld(html, url)
-    result["microdata"] = _detect_microdata(html, url)
-    result["html_listing"] = _detect_html_listing(soup, url)
-    result["generic_links"] = _detect_generic_links(html, url)
-    result["pagination"] = _detect_pagination(soup, url)
+    signals = _gather_signals(html, url, soup=soup)
+    classification = _classify(signals)
 
     pagination_settings = None
 
-    if result["pagination"] and result["pagination"].get("url_pattern"):
+    if signals["pagination"] and signals["pagination"].get("url_pattern"):
         pagination_settings = {
-            "url_pattern": result["pagination"]["url_pattern"],
-            "max_pages": result["pagination"]["max_pages"],
+            "url_pattern": signals["pagination"]["url_pattern"],
+            "max_pages": signals["pagination"]["max_pages"],
         }
 
     if pagination_settings:
+        for key in ("jsonld", "microdata", "html_listing"):
+            if signals[key]:
+                signals[key]["suggested_settings"]["pagination"] = pagination_settings
 
-        if result["jsonld"]:
-            result["jsonld"]["suggested_settings"]["pagination"] = pagination_settings
+    result.update({
+        "jsonld": signals["jsonld"],
+        "microdata": signals["microdata"],
+        "html_listing": signals["html_listing"],
+        "generic_links": signals["generic_links"],
+        "pagination": signals["pagination"],
+        "meta_generator": signals["meta_generator"],
+        "script_domains": signals["script_domains"],
+        "js_rendering_hint": classification["js_rendering_hint"],
+        "recommendation": classification["recommendation"],
+    })
 
-        if result["microdata"]:
-            result["microdata"]["suggested_settings"]["pagination"] = pagination_settings
+    if result["recommendation"]:
 
-        if result["html_listing"]:
-            result["html_listing"]["suggested_settings"]["pagination"] = pagination_settings
+        candidate_by_recommendation = {
+            "jsonld_listing": result["jsonld"],
+            "microdata_listing": result["microdata"],
+            "html_listing": result["html_listing"],
+            "generic_links": None,
+            "greenhouse": None,
+        }
 
-    if result["jsonld"]:
-        result["recommendation"] = "jsonld_listing"
-    elif result["microdata"]:
-        result["recommendation"] = "microdata_listing"
-    elif result["html_listing"]:
-        result["recommendation"] = "html_listing"
-    elif result["generic_links"]:
-        result["recommendation"] = "generic_links"
+        candidate = candidate_by_recommendation.get(result["recommendation"])
+        suggested_settings = candidate.get("suggested_settings") if candidate else None
+
+        if result["recommendation"] == "greenhouse":
+            board_token = greenhouse.derive_board_token(url)
+            # None als dit een embed op een eigen domein is (geen
+            # greenhouse.io-URL) -- dan moet board_token straks
+            # handmatig ingevuld worden, zie adapters/greenhouse.py
+            suggested_settings = {"board_token": board_token} if board_token else None
+
+        result["recommended_settings"] = suggested_settings
+
+        site_fingerprint.save(
+            url,
+            adapter=result["recommendation"],
+            settings_dict=suggested_settings,
+            confidence=classification["confidence"],
+        )
 
     return result
 
@@ -636,7 +790,7 @@ def _build_html_listing_result(soup, base_url, item_element, title_source_elemen
 
         preview.append(preview_item)
 
-    if len(preview) < MIN_MATCHES:
+    if len(preview) < MIN_MATCHES_FALLBACK:
         return None
 
     selectors = {
@@ -804,10 +958,30 @@ def _find_best_ancestor_signature(candidates):
     links het vaakst een GEDEELDE, maar onderling VERSCHILLENDE
     ouder-container hebben -- dat is typisch het "vacature-blok".
 
-    Geeft bij het eerste geldige niveau (kleinste = meest precieze
-    container) een voorbeeld-element terug, of None als niets
-    overtuigend genoeg is.
+    Drie voorkeursniveaus, in deze volgorde:
+      1. Een "schone" (niet util-class-zware) signature met >= MIN_MATCHES
+         treffers -- de normale, meest betrouwbare uitkomst.
+      2. Een util-class-zware (Tailwind-achtige, bv. "mb-3 border-b
+         border-gray-400") signature met >= MIN_MATCHES treffers --
+         zulke klassen komen vaak voor op generieke navigatie-/
+         categorie-links (die toevallig ook een vacature-keyword in
+         hun URL hebben), dus alleen als niets beters bestaat.
+      3. Een schone signature met slechts >= MIN_MATCHES_FALLBACK (2)
+         treffers -- voor het heel normale geval van een sterk
+         gefilterd zoekresultaat met weinig vacatures. NOOIT
+         util-class-zwaar op dit lage aantal: bij een zwak signaal
+         (maar 2 matches) is extra zekerheid over "dit lijkt op een
+         echt vacature-blok, niet op generieke opmaak" belangrijker.
+
+    Ontdekt via een echt gemeentebanen.nl-scenario: 7 regio-
+    navigatielinks (util-class-zwaar) versus 2 echte, gefilterde
+    vacatures (schoon, maar te weinig voor de normale drempel) --
+    zonder deze volgorde koos de heuristiek de verkeerde, talrijkere
+    groep.
     """
+
+    utility_fallback = None
+    low_confidence_clean_fallback = None
 
     for level in range(1, MAX_ANCESTOR_LEVELS + 1):
 
@@ -840,23 +1014,64 @@ def _find_best_ancestor_signature(candidates):
             signature_ancestor_ids.setdefault(signature, set()).add(id(ancestor))
             signature_examples.setdefault(signature, (link, ancestor))
 
+        clean_candidates = []
+
         for signature, count in signature_counts.items():
 
             distinct_ancestors = len(signature_ancestor_ids[signature])
 
-            if count >= MIN_MATCHES and distinct_ancestors >= MIN_MATCHES:
+            if count < MIN_MATCHES_FALLBACK or distinct_ancestors < MIN_MATCHES_FALLBACK:
+                continue
 
-                anchor_element, item_element = signature_examples[signature]
+            anchor_element, item_element = signature_examples[signature]
 
-                return {
-                    "level": level,
-                    "count": count,
-                    "distinct_ancestors": distinct_ancestors,
-                    "anchor_element": anchor_element,
-                    "item_element": item_element,
-                }
+            is_utility = _is_utility_heavy(item_element.get("class") or [])
 
-    return None
+            meets_primary_threshold = (
+                count >= MIN_MATCHES and distinct_ancestors >= MIN_MATCHES
+            )
+
+            candidate_result = {
+                "level": level,
+                "count": count,
+                "distinct_ancestors": distinct_ancestors,
+                "anchor_element": anchor_element,
+                "item_element": item_element,
+            }
+
+            if meets_primary_threshold and not is_utility:
+                clean_candidates.append(candidate_result)
+
+            elif meets_primary_threshold and is_utility:
+                if utility_fallback is None:
+                    utility_fallback = candidate_result
+
+            elif not is_utility:
+                if low_confidence_clean_fallback is None:
+                    low_confidence_clean_fallback = candidate_result
+
+        if clean_candidates:
+            return max(clean_candidates, key=lambda c: c["distinct_ancestors"])
+
+    return low_confidence_clean_fallback or utility_fallback
+
+
+def _is_utility_heavy(classes):
+    """
+    True als een classlist er meer als Tailwind-achtige utility-soep
+    uitziet (bv. "mb-3 border-b border-gray-400 flex justify-between")
+    dan als een betekenisvolle component-naam (bv. "vacature-item").
+    Twee of meer utility-achtige klassen is de drempel -- één losse
+    "flex" naast een echte naam ("vacature-card flex") mag nog steeds
+    als schoon gelden.
+    """
+
+    if not classes:
+        return False
+
+    utility_count = sum(1 for cls in classes if UTILITY_CLASS_PATTERN.match(cls))
+
+    return utility_count >= 2
 
 
 def test_source(source, limit=TEST_PREVIEW_LIMIT):

@@ -143,10 +143,18 @@ value="analyze">
 Analyseren (Adapter Helper)
 </button>
 
+<label style="margin-left: 12px; font-weight: normal;">
+<input type="checkbox" name="force_refresh" value="1">
+Forceer nieuwe analyse (negeer eerder gedetecteerde uitkomst)
+</label>
+
 <p class="muted">
 Haalt de pagina op en test automatisch welke adapter/instellingen
 werken. Kan voor beide brontypes gebruikt worden, maar is vooral
-nuttig bij vacatureplatforms.
+nuttig bij vacatureplatforms. Een domein dat al eerder succesvol
+geanalyseerd is, wordt normaal direct uit de cache herkend (sneller,
+geen nieuwe pagina-aanvraag) -- vink hierboven aan om dat te
+negeren en alles opnieuw te laten testen.
 </p>
 
 <br>
@@ -175,6 +183,29 @@ blokkeert (robots.txt / firewall).
 Analyse-resultaten
 </h2>
 
+{% if analysis.from_cache %}
+
+<div class="result-box recommended">
+<h4>
+Eerder gedetecteerd (uit cache) &mdash; adapter <code>{{ analysis.recommendation }}</code>
+<span class="badge badge-jobboard">Aanbevolen</span>
+</h4>
+<p>
+Dit domein is al eerder succesvol geanalyseerd (confidence
+{{ "%.0f"|format(analysis.cache_confidence * 100) }}%). Er is nu geen
+nieuwe pagina-aanvraag gedaan -- vink hierboven "Forceer nieuwe
+analyse" aan en klik nogmaals op Analyseren voor een volledige,
+verse detectie met alle kandidaten.
+</p>
+{% if analysis.cached_settings %}
+<pre>{{ analysis.cached_settings | tojson(indent=2) }}</pre>
+{% endif %}
+<button class="button" type="submit" name="action" value="apply:{{ analysis.recommendation }}">
+Gebruik deze instellingen
+</button>
+</div>
+
+{% else %}
 
 <div class="result-box {% if analysis.recommendation == 'jsonld_listing' %}recommended{% endif %}">
 <h4>
@@ -316,6 +347,62 @@ Ook geen enkele vacature-achtige link gevonden op deze pagina.
 {% endif %}
 </div>
 
+
+<div class="result-box {% if analysis.recommendation == 'greenhouse' %}recommended{% endif %}">
+<h4>
+5. Greenhouse Job Board API &mdash; adapter <code>greenhouse</code>
+{% if analysis.recommendation == 'greenhouse' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+
+{% if analysis.recommendation == 'greenhouse' %}
+<p>
+Herkend via een greenhouse.io-scriptbron of -URL (harde
+fingerprint-match, geen gok zoals bij de andere kandidaten hierboven).
+</p>
+{% if analysis.recommended_settings %}
+<pre>{{ analysis.recommended_settings | tojson(indent=2) }}</pre>
+{% else %}
+<p class="muted">
+<code>board_token</code> kon niet automatisch worden afgeleid (dit is
+vermoedelijk een embed-widget op een eigen domein) -- vul 'm handmatig
+in na het klikken op "Gebruik deze instellingen", zie
+<code>adapters/EXAMPLES.md</code>.
+</p>
+{% endif %}
+<button class="button" type="submit" name="action" value="apply:greenhouse">
+Gebruik deze instellingen
+</button>
+{% else %}
+<p class="muted">
+Niet gedetecteerd voor deze pagina.
+</p>
+{% endif %}
+</div>
+
+
+{% if analysis.js_rendering_hint %}
+
+<div class="result-box status-error">
+<h4>
+6. Geen van bovenstaande gevonden &mdash; mogelijk JavaScript nodig
+</h4>
+<p>
+{{ analysis.js_rendering_hint }}
+</p>
+<p class="muted">
+Kies hieronder handmatig adapter <code>browser_listing</code> (vereist
+Playwright, zie <code>requirements-browser.txt</code>) en stel
+<code>wait_selector</code>/<code>selectors</code> in -- zie
+adapters/EXAMPLES.md voor een compleet voorbeeld. De Adapter Helper
+kan dit niet automatisch testen (dat zou een browser moeten opstarten
+tijdens elke analyse), dus dit blijft handmatig instellen.
+</p>
+</div>
+
+{% endif %}
+
+{% endif %}
+
 {% endif %}
 
 {% endif %}
@@ -343,6 +430,7 @@ Adapter
 <option value="microdata_listing" {% if form.adapter == "microdata_listing" %}selected{% endif %}>microdata_listing</option>
 <option value="browser_listing" {% if form.adapter == "browser_listing" %}selected{% endif %}>browser_listing (JS-sites, vereist Playwright)</option>
 <option value="cso_api" {% if form.adapter == "cso_api" %}selected{% endif %}>cso_api</option>
+<option value="greenhouse" {% if form.adapter == "greenhouse" %}selected{% endif %}>greenhouse</option>
 </select>
 
 <p class="muted">
@@ -410,6 +498,34 @@ Controle interval
 <option value="weekly" {% if form.check_interval == "weekly" %}selected{% endif %}>Wekelijks</option>
 <option value="disabled" {% if form.check_interval == "disabled" %}selected{% endif %}>Uitgeschakeld</option>
 </select>
+
+<p class="muted">
+Bij "Wekelijks" wordt altijd op maandag gecontroleerd -- ongeacht de
+dagen die je hieronder aanvinkt. Kies dus bewust geen controledagen
+zonder maandag in combinatie met "Wekelijks", anders draait deze bron
+nooit.
+</p>
+
+<br><br>
+
+<label>
+Controledagen
+</label>
+<br>
+{% set day_labels = {"mon": "Ma", "tue": "Di", "wed": "Wo", "thu": "Do", "fri": "Vr", "sat": "Za", "sun": "Zo"} %}
+{% for day in all_weekdays %}
+<label style="margin-right: 12px; font-weight: normal;">
+<input type="checkbox" name="check_days" value="{{ day }}"
+{% if day in form.check_days %}checked{% endif %}>
+{{ day_labels[day] }}
+</label>
+{% endfor %}
+
+<p class="muted">
+Op welke dagen deze bron gecontroleerd MAG worden (naast het interval
+hierboven, dat bepaalt hoe vaak op zo'n toegestane dag). Niets
+aangevinkt telt als "alle dagen".
+</p>
 
 <br><br><br>
 

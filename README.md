@@ -31,6 +31,33 @@ zoekt dat grotendeels voor je uit.
   ondersteunen
 * Een kleine bibliotheek met voorbeeldbronnen om mee te beginnen
 
+## Wat is er nieuw in v3
+
+v3 herbouwt de Adapter Helper van "HTML → JSON in één stap" naar een
+**Website Detective**-pijplijn (Analyse → Detectie → Adapter → JSON),
+met als doel: minder gokwerk bij herhaalde analyses, en herkenning van
+bekende ATS-platformen zonder heuristieken.
+
+* **Detectie met geheugen**: een domein dat al eerder succesvol
+  geanalyseerd is, wordt bij een volgende analyse direct herkend
+  zonder de pagina opnieuw zwaar te hoeven doorzoeken (`site_fingerprint.py`).
+  Vink "Forceer nieuwe analyse" aan bij **Analyseren** om dit te
+  negeren en alsnog een volledige, verse detectie te draaien.
+* **`greenhouse`-adapter**: automatische herkenning van Greenhouse
+  Job Board-vacatures (`boards.greenhouse.io`, of een embed-widget op
+  een eigen domein), via de officiële, stabiele Job Board API in
+  plaats van HTML-scraping.
+* **Controledagen per bron**: naast het bestaande controle-interval
+  (dagelijks/wekelijks) kun je nu ook zelf kiezen op welke dagen van
+  de week een bron gecontroleerd mag worden.
+* **Tijdlijn** (`/vacatures/tijdlijn`): chronologisch overzicht van
+  alle vacatures over alle bronnen heen (datum -- vacature -- bron),
+  als aanvulling op het bestaande per-bron overzicht.
+* Interne herstructurering van de detectielogica in twee losse,
+  onafhankelijk testbare stappen (`_gather_signals`/`_classify`), met
+  een bijbehorende `pytest`-testsuite (`tests/`, 35 tests) -- zie
+  "Ontwikkelen" onderaan dit document.
+
 ---
 
 ## Functies
@@ -58,6 +85,7 @@ volledige uitleg.
 | `browser_listing` | sites die vacatures via JavaScript laden (headless Chromium) | ja | nee | nee | ja | ja | nee* |
 | `generic_links` | simpele "vacature-achtige" links (v1-aanpak) | nee | nee | nee | nee | nee | nee |
 | `cso_api` | CSO Vacature-API (Werken voor Nederland e.a.) | nee | ja | nee | nee | nee | ja |
+| `greenhouse` | Greenhouse Job Board API (automatisch gedetecteerd) | nee | nee | nee | ja | ja | nee |
 
 \* `browser_listing` vereist geen account, maar wel een losse
 installatiestap (Playwright + Chromium) -- zie
@@ -71,14 +99,18 @@ gebruiken.
 ### Adapter Helper
 
 Bij het toevoegen of wijzigen van een bron kun je op "Analyseren"
-klikken. De applicatie haalt de pagina dan één keer op en probeert, in
-volgorde van voorkeur:
+klikken. Als het domein nog niet eerder (recent) geanalyseerd is,
+haalt de applicatie de pagina op en probeert, in volgorde van
+voorkeur:
 
-1. JSON-LD (schema.org JobPosting)
-2. Microdata (schema.org, als HTML-attributen)
-3. Een herhalend HTML-blok rond vacature-achtige links -- of, als dat
+1. Een harde fingerprint-match met een bekend platform (op dit moment:
+   Greenhouse, via een `greenhouse.io`-scriptbron of -URL) -- adapter
+   `greenhouse`
+2. JSON-LD (schema.org JobPosting)
+3. Microdata (schema.org, als HTML-attributen)
+4. Een herhalend HTML-blok rond vacature-achtige links -- of, als dat
    niets oplevert, rond herhalende koppen (`<h2>`/`<h3>`/`<h4>`)
-4. Generieke links (werkt bijna altijd wel een beetje)
+5. Generieke links (werkt bijna altijd wel een beetje)
 
 Voor elke kandidaat die iets vindt, zie je een preview van de
 gevonden vacatures (titel, en waar mogelijk locatie/datum) vóórdat je
@@ -86,10 +118,18 @@ iets opslaat -- de Adapter Helper gokt niet stilzwijgend, hij laat
 zien wat elke aanpak daadwerkelijk oplevert. Paginering wordt apart
 gedetecteerd en waar mogelijk automatisch meegenomen.
 
+**Detectie met geheugen**: een domein dat al eerder succesvol
+geanalyseerd is (binnen de laatste 30 dagen), wordt bij een volgende
+analyse direct herkend zonder de pagina opnieuw te hoeven doorzoeken
+-- je ziet dan een korte samenvatting in plaats van de volledige
+kandidatenlijst. Vink **"Forceer nieuwe analyse"** aan om dit te
+negeren en alsnog alle kandidaten opnieuw te testen (bv. als de
+website intussen van structuur veranderd is).
+
 Belangrijk: deze detectie draait alléén als je zelf op "Analyseren"
-klikt. De geplande controles draaien op de vaste selectors die je
-opslaat, niet op een herhaalde live gok -- dat houdt het gedrag van
-een bron voorspelbaar.
+klikt. De geplande controles draaien op de vaste selectors/instellingen
+die je opslaat, niet op een herhaalde live gok -- dat houdt het
+gedrag van een bron voorspelbaar.
 
 ### Bron testen
 
@@ -106,6 +146,18 @@ Elke bron toont een statusoverzicht: laatste controle, laatste
 geslaagde controle, aantal (actieve) vacatures, aantal nieuwe
 vacatures bij de laatste geslaagde controle, de gebruikte adapter, en
 de laatste foutmelding (indien van toepassing).
+
+### Vacature-overzichten
+
+Twee weergaven, beide met live data uit de database:
+
+* **Alle vacatures** (`/vacatures`) -- per bron gegroepeerd, alleen
+  actieve vacatures.
+* **Tijdlijn** (`/vacatures/tijdlijn`) -- chronologisch over alle
+  bronnen heen (datum, vacature, bron), nieuwste eerst, max. 200
+  resultaten. Met `?toon=alle` (of de link op de pagina zelf) worden
+  ook verdwenen vacatures getoond, met een "Verdwenen"-badge en de
+  datum waarop ze voor het laatst gezien zijn.
 
 ### Systeem → Diagnose
 
@@ -177,10 +229,14 @@ docker logs -f vacaturewatcher
 
 Als je al vacatures/werkgevers had opgeslagen (v1, of een eerdere
 v2-tussenversie), draai dan **eenmalig** het migratiescript voordat je
-de nieuwe code voor het eerst start:
+de nieuwe code voor het eerst start. Dit draait BINNEN de container
+(niet op de NAS zelf) -- daar staan de juiste Python-afhankelijkheden
+en wijst `DATABASE_PATH` naar het gekoppelde `data`-volume:
 
 ```bash
-python migrate_v1_to_v2.py
+docker compose up -d --build
+docker compose exec vacaturewatcher python migrate_v1_to_v2.py
+docker compose restart vacaturewatcher
 ```
 
 Dit script is idempotent: het is veilig om het bij elke upgrade
@@ -209,6 +265,7 @@ lijst om naam en URL in te vullen, of vul ze zelf in:
 | URL | `https://www.website.nl/vacatures` |
 | Zoekwoorden | ict, netwerk, beheer |
 | Controle interval | Dagelijks |
+| Controledagen | Alle dagen (standaard), of zelf kiezen (bv. alleen ma/wo/vr) |
 
 Klik op **Analyseren** om de Adapter Helper de pagina te laten testen,
 kies een van de voorgestelde instellingen (of laat "generic_links"
@@ -216,6 +273,11 @@ staan voor een simpele werkgeverspagina), en sla op. Gebruik daarna
 **Bron testen** op de detailpagina om snel te checken of het werkt,
 of **Nu controleren** voor een volledige scan (inclusief opslaan en
 meldingen).
+
+> **Let op** bij "Controle interval" = Wekelijks: dit betekent altijd
+> "op maandag", ongeacht welke dagen je bij Controledagen aanvinkt.
+> Kies dus geen Controledagen-selectie zonder maandag in combinatie
+> met Wekelijks, anders draait de bron nooit.
 
 ---
 
@@ -228,7 +290,7 @@ APP_NAME=VacatureWatcher
 
 SECRET_KEY=verander_dit
 
-DATABASE_PATH=data/vacaturewatcher.db
+DATABASE_PATH=/app/data/vacaturewatcher.db
 
 
 EMAIL_ENABLED=false
@@ -254,6 +316,16 @@ TELEGRAM_CHAT_ID=
 CSO_USERNAME=
 CSO_PASSWORD=
 ```
+
+## Tijdzone en controledagen
+
+`docker-compose.yml` zet `TZ=Europe/Amsterdam` voor de container. Dit
+bepaalt op welke weekdag een controle volgens de klok van de
+container valt -- essentieel voor de "Controledagen"-instelling per
+bron (`Source.check_days`, zie **Bron bewerken**). Draai je de NAS in
+een andere tijdzone, pas dan deze regel in `docker-compose.yml` aan.
+Zonder een correcte tijdzone-instelling rekent de container in UTC,
+wat rond middernacht tot een verschoven weekdag kan leiden.
 
 ## E-mail notificaties
 
@@ -318,14 +390,15 @@ cp data/vacaturewatcher.db backup.db
 
 ```bash
 git pull
-python migrate_v1_to_v2.py
-docker compose down
 docker compose up -d --build
+docker compose exec vacaturewatcher python migrate_v1_to_v2.py
+docker compose restart vacaturewatcher
 ```
 
-De database blijft behouden. Vergeet de migratiestap niet als je van
-een oudere versie komt (zie hierboven) -- draai die vóór je de
-container herstart.
+De database blijft behouden. Vergeet de migratiestap niet -- draai die
+ná `up -d --build` (de container met de nieuwe code moet al draaien
+om het script binnenin te kunnen uitvoeren) maar vóór je erop
+vertrouwt dat nieuwe kolommen/functies werken.
 
 ---
 
@@ -351,6 +424,7 @@ vacaturewatcher/
 
 ├── scraper.py
 ├── adapter_helper.py
+├── site_fingerprint.py       cache: onthoudt eerder gedetecteerde adapter per domein
 ├── example_sources.py
 ├── vacancy_parser.py        (legacy, vervangen door adapters/generic_links.py)
 ├── comparer.py               (legacy, ongebruikt)
@@ -364,6 +438,7 @@ vacaturewatcher/
 │   ├── microdata_listing.py
 │   ├── browser_listing.py    optioneel, vereist requirements-browser.txt
 │   ├── cso_api.py
+│   ├── greenhouse.py         Greenhouse Job Board API, automatisch gedetecteerd
 │   └── EXAMPLES.md           configuratievoorbeelden per adapter
 
 ├── notifications.py
@@ -375,6 +450,11 @@ vacaturewatcher/
 │   ├── scheduler_service.py
 │   └── notification_service.py
 
+├── tests/                    pytest -- zie sectie "Testen" hieronder
+│   ├── test_adapter_helper_classify.py
+│   ├── test_greenhouse_adapter.py
+│   └── test_source_scheduling.py
+
 ├── templates/
 ├── static/
 
@@ -383,8 +463,30 @@ vacaturewatcher/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt      optioneel: pytest, alleen voor lokaal testen
 ├── requirements-browser.txt  optioneel: adapters/browser_listing.py
-└── .env.example
+├── .env.example
+└── .gitignore
+```
+
+---
+
+# Testen
+
+Sinds v3 heeft het project een `pytest`-testsuite (35 tests) voor de
+detectielogica van de Adapter Helper, de Greenhouse-adapter, en de
+weekdag-planning. Alleen nodig voor ontwikkeling, niet voor gewoon
+gebruik -- de Docker-image bevat `pytest` niet.
+
+```bash
+pip install -r requirements-dev.txt --break-system-packages
+pytest tests/ -v
+```
+
+Of binnen een draaiende container:
+```bash
+docker compose exec vacaturewatcher pip install -r requirements-dev.txt
+docker compose exec vacaturewatcher pytest tests/ -v
 ```
 
 ---
@@ -414,8 +516,11 @@ vacaturewatcher/
   basis van herhalende structuur; controleer altijd de preview
   voordat je opslaat.
 * Geplande controles gebruiken vaste, opgeslagen selectors -- als een
-  site van structuur verandert, moet je de bron opnieuw analyseren
-  ("Hertest"/Analyseren), dit gebeurt niet automatisch.
+  site van structuur verandert, moet je de bron zelf opnieuw
+  analyseren (**Analyseren** met **"Forceer nieuwe analyse"**
+  aangevinkt), dit gebeurt niet automatisch.
+* `check_interval` = Wekelijks betekent altijd "op maandag", ongeacht
+  de gekozen Controledagen -- zie de noot bij "Eerste bron toevoegen".
 * `cso_api` extraheert nog geen locatie/datum (de API levert dit wel,
   maar het exacte veldpad is nog niet geverifieerd -- zie de
   toelichting in `adapters/cso_api.py`).
@@ -442,9 +547,14 @@ Mogelijke toekomstige uitbreidingen:
       `requirements-browser.txt`)
 * [ ] `browser_listing`: detailpagina-modus (mode "detail", zoals
       jsonld_listing/microdata_listing al hebben)
-* [ ] Geautomatiseerde testsuite (pytest) -- veel van de heuristieken
-      zijn tijdens ontwikkeling ad-hoc getest maar niet als
-      regressietest vastgelegd
+* [x] Geautomatiseerde testsuite (pytest) -- `tests/`, 35 tests voor
+      de Adapter Helper-classificatie, de Greenhouse-adapter en de
+      weekdag-planning
+* [x] Chronologisch vacature-overzicht (datum -- vacature -- bron)
+      over alle bronnen heen, als aanvulling op het bestaande
+      per-bron overzicht -- **Tijdlijn** (`/vacatures/tijdlijn`)
+* [ ] Tweede platform-adapter (bv. Workday) bovenop de
+      fingerprint-aanpak uit `greenhouse.py`
 * [ ] Robots.txt-check inbouwen in `scraper.fetch_html()`
 * [ ] CSRF-bescherming (Flask-WTF)
 * [ ] Overstap naar Flask-Migrate/Alembic i.p.v. handmatige

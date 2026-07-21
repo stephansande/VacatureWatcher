@@ -9,6 +9,12 @@ from werkzeug.security import (
 )
 
 
+ALL_WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+# Python's datetime.weekday() geeft 0=maandag..6=zondag -- deze lijst
+# staat in dezelfde volgorde, zodat ALL_WEEKDAYS[datetime.now().weekday()]
+# altijd de juiste afkorting oplevert. Gedeeld door Source.runs_today()
+# hieronder en services/scheduler_service.py.
+
 
 class Source(db.Model):
     """
@@ -51,6 +57,18 @@ class Source(db.Model):
         db.String(20),
         default="daily"
     )
+
+    check_days = db.Column(
+        db.String(30),
+        default="mon,tue,wed,thu,fri,sat,sun",
+        nullable=False
+    )
+    # comma-gescheiden weekdag-afkortingen waarop deze bron gecontroleerd
+    # MAG worden (naast check_interval hierboven, dat bepaalt HOE VAAK
+    # op zo'n toegestane dag -- "dagelijks" of "wekelijks op maandag").
+    # Default = alle dagen, zodat bestaande bronnen (en installaties
+    # die nog moeten migreren) ongewijzigd blijven draaien. Lees/schrijf
+    # dit via check_days_list hieronder, niet rechtstreeks als string.
 
     keywords = db.Column(
         db.Text,
@@ -153,11 +171,68 @@ class Source(db.Model):
     )
 
 
+    @property
+    def check_days_list(self):
+        """Geeft check_days als Python-lijst, bv. ['mon', 'wed', 'fri']."""
+
+        if not self.check_days:
+            return list(ALL_WEEKDAYS)
+
+        return [
+            day.strip().lower()
+            for day in self.check_days.split(",")
+            if day.strip()
+        ]
+
+    @check_days_list.setter
+    def check_days_list(self, days):
+        """
+        Zet check_days vanuit een Python-lijst (bv. rechtstreeks vanuit
+        de checkboxes van het bron-formulier). Onbekende/lege waarden
+        worden genegeerd; een lege selectie wordt opgeslagen als lege
+        string, wat check_days_list weer als "alle dagen" interpreteert
+        (zie getter hierboven) -- zo kan een bron nooit per ongeluk
+        stilletjes helemaal nooit meer draaien door een leeg formulier.
+        """
+
+        valid = [day for day in ALL_WEEKDAYS if day in (days or [])]
+
+        self.check_days = ",".join(valid)
+
+    def runs_today(self, today=None):
+        """
+        True als deze bron vandaag gecontroleerd mag worden, op basis
+        van check_days. `today` is optioneel een weekday-afkorting
+        ('mon'..'sun') zodat dit testbaar is zonder de systeemklok te
+        hoeven mocken -- zonder argument wordt de systeemdatum gebruikt.
+        """
+
+        if today is None:
+            today = ALL_WEEKDAYS[datetime.now().weekday()]
+
+        return today in self.check_days_list
+
     def __repr__(self):
 
         return f"<Source {self.name}>"
 
 
+
+
+class SiteFingerprint(db.Model):
+    """Zie site_fingerprint.py voor de logica hieromheen."""
+
+    __tablename__ = "site_fingerprint"
+
+    id = db.Column(db.Integer, primary_key=True)
+    domain = db.Column(db.String(200), unique=True, nullable=False, index=True)
+    adapter = db.Column(db.String(50), nullable=False)
+    confidence = db.Column(db.Float, default=0.5)
+    settings = db.Column(db.Text, nullable=True)
+    last_verified = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SiteFingerprint {self.domain} -> {self.adapter}>"
 
 
 class VacancyPage(db.Model):

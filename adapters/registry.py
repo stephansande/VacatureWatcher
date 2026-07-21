@@ -13,6 +13,7 @@ from adapters import jsonld_listing
 from adapters import microdata_listing
 from adapters import browser_listing
 from adapters import cso_api
+from adapters import greenhouse
 from adapters.base import AdapterError
 
 
@@ -23,6 +24,7 @@ ADAPTERS = {
     "microdata_listing": microdata_listing,
     "browser_listing": browser_listing,
     "cso_api": cso_api,
+    "greenhouse": greenhouse,
 }
 
 

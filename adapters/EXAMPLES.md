@@ -5,6 +5,36 @@ Deze waarden vul je in bij het aanmaken/bewerken van een Source
 ÉÉN generieke `settings`-kolom (JSON) -- zie `adapters/base.py` voor
 `load_settings()`.
 
+## Greenhouse-boards (adapter: `greenhouse`)
+
+Werkt via de publieke Greenhouse Job Board API (`boards-api.greenhouse.io`)
+-- geen account nodig, en stabieler dan HTML-scraping omdat de API los
+staat van hoe het board eruitziet. De Adapter Helper herkent dit
+automatisch (hoge confidence, harde fingerprint-match): zowel een
+directe `boards.greenhouse.io/<bedrijf>`-URL als een embed-widget op
+het eigen "werken bij"-domein van een werkgever.
+
+Rechtstreeks board:
+```json
+{
+  "board_token": "acme"
+}
+```
+`board_token` is meestal automatisch af te leiden uit de URL (het
+bedrijfsdeel van `https://boards.greenhouse.io/acme`) -- de Adapter
+Helper vult dit dan al voor je in.
+
+Embed-widget op een eigen domein (bv. `werkenbij.acme.nl`): hier kan
+`board_token` NIET automatisch afgeleid worden uit de URL, dus vul 'm
+zelf in (te vinden in de HTML-broncode, in het script dat naar
+`boards.greenhouse.io/embed/job_board/js?for=acme` verwijst -- het
+stuk na `for=` is je board_token):
+```json
+{
+  "board_token": "acme"
+}
+```
+
 ## Werken voor Nederland (adapter: `cso_api`)
 
 Vereist een API-account (username/password) via de CSO-helpdesk

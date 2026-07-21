@@ -1,0 +1,8 @@
+# Alleen nodig voor lokaal testen, niet voor de Docker-image zelf
+# (blijft dus bewust los van requirements.txt en requirements-browser.txt).
+#
+# Gebruik:
+#   pip install -r requirements-dev.txt --break-system-packages
+#   pytest tests/
+
+pytest>=8.0

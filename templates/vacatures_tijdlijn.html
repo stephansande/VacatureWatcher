@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+
+{% block title %}
+Tijdlijn
+{% endblock %}
+
+
+{% block content %}
+
+
+<h1>
+Tijdlijn
+</h1>
+
+<p class="muted">
+{{ total }} vacature(s){% if not toon_alles %} (alleen actieve){% endif %},
+nieuwste eerst, over alle bronnen heen. Maximaal 200 resultaten.
+</p>
+
+<p>
+{% if toon_alles %}
+<a href="/vacatures/tijdlijn">Toon alleen actieve vacatures</a>
+{% else %}
+<a href="/vacatures/tijdlijn?toon=alle">Toon ook verdwenen vacatures</a>
+{% endif %}
+</p>
+
+
+<table>
+
+<tr>
+<th style="width:140px;">Datum</th>
+<th>Vacature</th>
+<th style="width:260px;">Bron</th>
+</tr>
+
+{% for vacancy in vacancies %}
+
+<tr>
+
+<td class="muted" style="white-space:nowrap;">
+{{ vacancy.first_seen.strftime("%d-%m-%Y %H:%M") }}
+{% if not vacancy.active %}
+<br><span class="badge" style="background:#9ca3af; border-radius:10px; padding:1px 6px; font-size:10px;">Verdwenen</span>
+{% endif %}
+</td>
+
+<td>
+{% if vacancy.url %}
+<a href="{{ vacancy.url }}" target="_blank">{{ vacancy.title }}</a>
+{% else %}
+{{ vacancy.title }}
+{% endif %}
+</td>
+
+<td>
+<a href="/employer/{{ vacancy.employer_id }}">{{ vacancy.source.name }}</a>
+{% if vacancy.source.type == "jobboard" %}
+<span class="badge badge-jobboard">Vacatureplatform</span>
+{% else %}
+<span class="badge badge-employer">Werkgever</span>
+{% endif %}
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+{% if not vacancies %}
+<p class="muted">
+Nog geen vacatures gevonden. Voeg een bron toe of draai eerst een
+controle.
+</p>
+{% endif %}
+
+
+{% endblock %}

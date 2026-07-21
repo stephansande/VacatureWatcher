@@ -35,6 +35,8 @@ NEW_COLUMNS = [
     ("last_success", "DATETIME"),
     ("last_error", "TEXT"),
     ("last_new_count", "INTEGER"),
+    # Fase 3 -- weekdag-selectie voor het controleschema
+    ("check_days", "VARCHAR(30) DEFAULT 'mon,tue,wed,thu,fri,sat,sun' NOT NULL"),
 ]
 
 

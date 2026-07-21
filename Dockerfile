@@ -7,6 +7,18 @@ WORKDIR /app
 COPY requirements.txt .
 
 
+# tzdata: zonder dit pakket heeft de python:3.12-slim-image geen
+# tijdzonedatabase, en negeert glibc de TZ-omgevingsvariabele
+# (docker-compose.yml zet TZ=Europe/Amsterdam) stilzwijgend -- alles
+# zou dan intern op UTC draaien. Belangrijk voor de "controledagen"
+# (Source.check_days, zie models.py/scheduler_service.py): zonder
+# tzdata kan een controle rond middernacht op de verkeerde weekdag
+# vallen.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+
 RUN pip install --no-cache-dir \
     -r requirements.txt
 
