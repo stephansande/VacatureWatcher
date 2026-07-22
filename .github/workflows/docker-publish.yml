@@ -1,0 +1,75 @@
+name: Build en publiceer Docker image
+
+# Draait bij elke push naar main (dus ook na een merge van een PR),
+# en is met de hand te starten via het "Run workflow"-knopje in de
+# Actions-tab (workflow_dispatch) -- handig om een keer opnieuw te
+# bouwen zonder een lege commit te hoeven pushen.
+on:
+  push:
+    branches:
+      - main
+    # Alleen bouwen als er ook echt iets is veranderd dat de image
+    # raakt -- een los README-tikfoutje hoeft geen nieuwe build te
+    # triggeren.
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Nodig om met de ingebouwde GITHUB_TOKEN naar ghcr.io te mogen
+  # pushen -- geen apart secret/PAT nodig.
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # ${{ github.repository }} is "eigenaar/reponaam", precies de vorm
+  # die ghcr.io verwacht. docker/metadata-action zet dit automatisch
+  # in lowercase om (ghcr.io eist lowercase image-namen).
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Code uitchecken
+        uses: actions/checkout@v4
+
+      - name: QEMU instellen (voor arm64-builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Buildx instellen
+        uses: docker/setup-buildx-action@v3
+
+      - name: Inloggen bij ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags/labels bepalen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=,format=short
+
+      - name: Bouwen en pushen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # amd64: de meeste NAS-systemen (Intel/AMD).
+          # arm64: Raspberry Pi-achtige of ARM-NAS-systemen. Kost meer
+          # buildtijd (QEMU-emulatie); verwijder de regel als je
+          # zeker weet dat je 'm nooit nodig hebt.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
