@@ -53,6 +53,11 @@ bekende ATS-platformen zonder heuristieken.
 * **Tijdlijn** (`/vacatures/tijdlijn`): chronologisch overzicht van
   alle vacatures over alle bronnen heen (datum -- vacature -- bron),
   als aanvulling op het bestaande per-bron overzicht.
+* **Geautomatiseerde image-builds**: `.github/workflows/docker-publish.yml`
+  bouwt en publiceert bij elke push naar `main` een multi-arch
+  (`amd64`/`arm64`) Docker image naar GitHub Container Registry --
+  `docker-compose.yml` trekt die binnen (`image: ghcr.io/...`), je NAS
+  hoeft dus niet zelf te bouwen.
 * Interne herstructurering van de detectielogica in twee losse,
   onafhankelijk testbare stappen (`_gather_signals`/`_classify`), met
   een bijbehorende `pytest`-testsuite (`tests/`, 35 tests) -- zie
@@ -220,10 +225,17 @@ git clone https://github.com/<gebruikersnaam>/vacaturewatcher.git
 cd vacaturewatcher
 cp .env.example .env
 nano .env
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker ps
 docker logs -f vacaturewatcher
 ```
+
+`docker compose pull` haalt de kant-en-klare image binnen die
+`.github/workflows/docker-publish.yml` bij elke push naar `main`
+bouwt (zie "Docker image bouwen via GitHub Actions" verderop) -- je
+NAS hoeft dus niet zelf te bouwen. Bouw je liever lokaal (bv. tijdens
+ontwikkelen), zie de `build:`-alternatief in `docker-compose.yml`.
 
 ## Bestaande installatie bijwerken naar v2
 
@@ -234,7 +246,8 @@ de nieuwe code voor het eerst start. Dit draait BINNEN de container
 en wijst `DATABASE_PATH` naar het gekoppelde `data`-volume:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose exec vacaturewatcher python migrate_v1_to_v2.py
 docker compose restart vacaturewatcher
 ```
@@ -292,6 +305,12 @@ SECRET_KEY=verander_dit
 
 DATABASE_PATH=/app/data/vacaturewatcher.db
 
+# Wordt bij de EERSTE opstart gebruikt om de admin-inlog aan te maken.
+# Vul dus vóór de eerste start in -- zonder deze twee kun je niet
+# inloggen.
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=verander_dit
+
 
 EMAIL_ENABLED=false
 
@@ -326,6 +345,66 @@ bron (`Source.check_days`, zie **Bron bewerken**). Draai je de NAS in
 een andere tijdzone, pas dan deze regel in `docker-compose.yml` aan.
 Zonder een correcte tijdzone-instelling rekent de container in UTC,
 wat rond middernacht tot een verschoven weekdag kan leiden.
+
+## Problemen oplossen
+
+**`sqlite3.OperationalError: unable to open database file`** bij het
+opstarten -- de container kan niet schrijven naar het gemounte
+`/app/data`-volume. Meestal doordat de map op de host (NAS) een
+andere eigenaar heeft dan de vaste gebruiker in de image. Twee opties:
+* Zet `PUID`/`PGID` in `docker-compose.yml` op de UID/GID van de
+  gewenste eigenaar op je NAS -- `entrypoint.sh` past dit bij het
+  opstarten toe en corrigeert de eigendom van `./data` automatisch.
+* Of chown de map zelf op de NAS: `chown -R 1000:1000 ./data`
+  (1000 is de standaard-UID in de image, zonder `PUID`/`PGID`).
+
+**Zorg dat `docker-compose.yml` naar de juiste image wijst** --
+`ghcr.io/<jouw-github-gebruiker>/<jouw-reponaam>:latest`. Gebruik je
+een andere repo-naam of -eigenaar dan `stephansande/vacaturewatcher`,
+pas dan de `image:`-regel aan.
+
+**OMV/Portainer-templatesyntax zoals `${{ sf:"appdata" }}`** in het
+`volumes:`-pad is geen standaard docker-compose-syntax. Gebruik een
+gewoon relatief of absoluut pad (zoals hierboven, `./data:/app/data`)
+als je twijfelt of zo'n macro correct wordt vervangen.
+
+## Docker image bouwen via GitHub Actions (CI/CD)
+
+`.github/workflows/docker-publish.yml` bouwt bij elke push naar `main`
+automatisch een nieuwe image en publiceert die naar GitHub Container
+Registry (`ghcr.io`), voor zowel `amd64` als `arm64`. Je NAS hoeft dan
+nooit zelf te bouwen -- `docker-compose.yml` trekt gewoon de kant-en-
+klare image binnen (`image: ghcr.io/...`, zie hierboven).
+
+Wat je zelf moet doen, eenmalig:
+
+1. **Push deze code naar GitHub** (een repo met daarin `Dockerfile`,
+   `.github/workflows/docker-publish.yml`, en de rest van dit
+   project). Geen extra instellingen nodig -- de workflow gebruikt de
+   ingebouwde `GITHUB_TOKEN`, geen apart secret.
+2. **Wacht tot de eerste run klaar is** (tab **Actions** in je repo).
+   Duurt door de `arm64`-build via emulatie een paar minuten langer
+   dan een gewone lokale build.
+3. **Zet het package op publiek**, anders kan `docker compose pull`
+   op je NAS niet inloggen: ga naar je GitHub-profiel → **Packages**
+   → `vacaturewatcher` → **Package settings** → **Change visibility**
+   → **Public**. (Alternatief: privé laten en `docker login ghcr.io`
+   met een Personal Access Token op je NAS draaien -- maar publiek is
+   voor een side-project simpeler.)
+4. Op je NAS: `docker compose pull && docker compose up -d`.
+
+Elke volgende push naar `main` bouwt automatisch een nieuwe `:latest`.
+Om te updaten op je NAS: `docker compose pull && docker compose up -d`
+(geen `--build` nodig, je bouwt niet meer lokaal). Elke image krijgt
+ook een tag met de korte commit-hash (bv. `:a1b2c3d`), zodat je nodig
+terug kan naar een specifieke eerdere versie door die tag in
+`docker-compose.yml` te zetten in plaats van `:latest`.
+
+Wil je dit automatisch laten trekken zodra er een nieuwe `:latest`
+verschijnt (zonder zelf `docker compose pull` te draaien), kijk dan
+naar [Watchtower](https://github.com/containrrr/watchtower) -- niet
+door dit project meegeleverd, maar een veelgebruikte, aparte
+self-hosted tool hiervoor.
 
 ## E-mail notificaties
 
@@ -390,15 +469,20 @@ cp data/vacaturewatcher.db backup.db
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose exec vacaturewatcher python migrate_v1_to_v2.py
 docker compose restart vacaturewatcher
 ```
 
-De database blijft behouden. Vergeet de migratiestap niet -- draai die
-ná `up -d --build` (de container met de nieuwe code moet al draaien
-om het script binnenin te kunnen uitvoeren) maar vóór je erop
-vertrouwt dat nieuwe kolommen/functies werken.
+`git pull` is hier vooral voor je eigen `.env`/`docker-compose.yml`-
+aanpassingen en dit README-bestand; de daadwerkelijke applicatiecode
+komt via `docker compose pull` binnen (de image die GitHub Actions
+bij de laatste push naar `main` heeft gebouwd, zie "Docker image
+bouwen via GitHub Actions"). De database blijft behouden. Vergeet de
+migratiestap niet -- draai die ná `up -d` (de container met de nieuwe
+code moet al draaien om het script binnenin te kunnen uitvoeren) maar
+vóór je erop vertrouwt dat nieuwe kolommen/functies werken.
 
 ---
 
@@ -416,6 +500,10 @@ rm -rf data   # inclusief database
 
 ```
 vacaturewatcher/
+
+├── .github/
+│   └── workflows/
+│       └── docker-publish.yml   bouwt + publiceert de image naar ghcr.io bij elke push naar main
 
 ├── app.py
 ├── config.py
@@ -461,6 +549,7 @@ vacaturewatcher/
 ├── data/
 
 ├── Dockerfile
+├── entrypoint.sh             past PUID/PGID toe en chown't /app/data bij het opstarten
 ├── docker-compose.yml
 ├── requirements.txt
 ├── requirements-dev.txt      optioneel: pytest, alleen voor lokaal testen
@@ -561,7 +650,8 @@ Mogelijke toekomstige uitbreidingen:
       migratiescripts
 * [ ] Meerdere gebruikers
 * [ ] API voor externe integraties
-* [ ] Docker image publiceren
+* [x] Docker image publiceren -- `.github/workflows/docker-publish.yml`,
+      automatisch naar `ghcr.io` bij elke push naar `main`
 
 ---
 

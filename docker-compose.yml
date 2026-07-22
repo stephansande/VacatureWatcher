@@ -5,8 +5,18 @@ services:
     container_name: vacaturewatcher
 
 
-    build:
-      context: .
+    # Image gebouwd en gepubliceerd door
+    # .github/workflows/docker-publish.yml, bij elke push naar main.
+    # Pas "stephansande/vacaturewatcher" aan als je repo onder een
+    # andere GitHub-gebruiker/organisatie of naam staat -- het patroon
+    # is altijd ghcr.io/<eigenaar>/<reponaam>.
+    image: ghcr.io/stephansande/vacaturewatcher:latest
+
+    # Alternatief voor lokaal ontwikkelen/testen (bouwt uit je eigen
+    # checkout i.p.v. GHCR te trekken) -- commentarieer "image:"
+    # hierboven uit en dit blok in als je dat wilt:
+    # build:
+    #   context: .
 
 
     restart: unless-stopped
@@ -33,3 +43,10 @@ services:
     environment:
 
       TZ: Europe/Amsterdam
+      # PUID/PGID: optioneel. Standaard 1000/1000 (dezelfde UID als
+      # de vaste "appuser" in de Dockerfile). Zet deze alleen als de
+      # eigenaar van je ./data-map op de NAS een andere UID/GID heeft
+      # -- entrypoint.sh past 'm bij het opstarten aan en chown't het
+      # volume, zodat SQLite er altijd in kan schrijven.
+      # PUID: "1000"
+      # PGID: "1000"

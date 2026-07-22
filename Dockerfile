@@ -14,8 +14,14 @@ COPY requirements.txt .
 # (Source.check_days, zie models.py/scheduler_service.py): zonder
 # tzdata kan een controle rond middernacht op de verkeerde weekdag
 # vallen.
+#
+# gosu: om na het (eventueel) aanpassen van UID/GID bij het opstarten
+# alsnog veilig als een niet-root gebruiker te draaien (zie
+# entrypoint.sh). usermod/groupmod (nodig om PUID/PGID op appuser toe
+# te passen) zitten al in de basisimage, via het essentiële
+# "passwd"-pakket -- geen aparte install nodig.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
+    && apt-get install -y --no-install-recommends tzdata gosu \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -45,11 +51,17 @@ RUN mkdir -p /app/data/backups \
         --create-home \
         --uid 1000 \
         appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && chmod +x entrypoint.sh
 
 
 
-USER appuser
+# Bewust GEEN "USER appuser" hier: de container start als root, zodat
+# entrypoint.sh bij het opstarten (a) PUID/PGID kan toepassen op
+# appuser en (b) het gemounte /app/data-volume kan chown'en naar die
+# UID/GID -- root-only operaties. entrypoint.sh draagt de daadwerkelijke
+# applicatie daarna over aan appuser via gosu; er draait nooit
+# applicatiecode als root.
 
 
 
@@ -66,4 +78,5 @@ HEALTHCHECK \
 
 
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "app.py"]
