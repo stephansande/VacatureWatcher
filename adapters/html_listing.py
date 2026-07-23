@@ -18,6 +18,7 @@ Voorbeeld Source.settings:
         "item": ".vacature-item",
         "title": ".vacature-titel a",
         "link": ".vacature-titel a",
+        "link_attr": "href",
         "location": ".vacature-locatie",
         "date": ".vacature-datum"
     },
@@ -36,6 +37,27 @@ Alleen "selectors.item" is verplicht, plus minstens één van
 hetzelfde element -- handig voor simpele lijsten zoals
 {"item": "ul > li", "link": "a"} zonder aparte titel-markup).
 
+"selectors.link_attr" is optioneel, standaard "href" (het normale
+geval: een echte <a href="...">). Zet 'm op "onclick" voor sites die
+in plaats daarvan een klikbaar element bouwen met
+onclick="location.href='...'" -- geen <a>, geen href, alleen JS. Zo'n
+patroon kwamen we tegen bij een Vue-widget op Werken voor Wassenaar:
+<div class="card" onclick="location.href='vacature.html?id=894537';">.
+
+"selectors.link" (en ook "selectors.title") mag de speciale waarde
+"self" zijn: dan is het ITEM-element zelf het bedoelde element (bv.
+wanneer de onclick op dezelfde <div> staat als "selectors.item", of
+wanneer het item-element zelf al de titeltekst bevat). Dit werkt NIET
+met een normale CSS-selector die naar zichzelf verwijst
+(item.select_one() zoekt alleen in afstammelingen, nooit het element
+zelf), vandaar deze aparte sentinel-waarde:
+{
+    "item": "div.customCard[onclick]",
+    "title": ".card-title",
+    "link": "self",
+    "link_attr": "onclick"
+}
+
 "categories" wordt momenteel niet automatisch verwerkt (elke site
 geeft categorieën op een andere manier door, meestal als onderdeel
 van start_url zelf, bv. .../category/betaalde-functie/) -- het staat
@@ -45,11 +67,39 @@ opnieuw een databasekolom nodig te hebben.
 
 from urllib.parse import urljoin
 
+import re
+
 from bs4 import BeautifulSoup
 
 from scraper import fetch_html
 
 from adapters.base import load_settings, require, polite_sleep, AdapterError
+
+
+_ONCLICK_URL_RE = re.compile(r"""location\.href\s*=\s*['"]([^'"]+)['"]""")
+
+
+def _extract_url(element, attr):
+    """
+    Haalt de vacature-URL op uit `element` via het attribuut `attr`
+    (standaard "href", het normale geval). Bij attr == "onclick" wordt
+    in plaats daarvan een veelvoorkomend JS-patroon herkend:
+    onclick="location.href='...'" -- gebruikt door sites die
+    vacaturekaarten bouwen met een <div onclick="..."> in plaats van
+    een echte <a href> (aangetroffen bij een Vue-widget op Werken voor
+    Wassenaar: geen enkele <a href> op de pagina, wel
+    <div class="card" onclick="location.href='vacature.html?id=...'">).
+    Voor elk ander attr-veld wordt gewoon die attribuutwaarde gelezen.
+    """
+
+    if attr == "onclick":
+
+        raw = element.get("onclick", "") or ""
+        match = _ONCLICK_URL_RE.search(raw)
+
+        return match.group(1) if match else None
+
+    return element.get(attr)
 
 
 CAPABILITIES = {
@@ -125,6 +175,11 @@ def parse(raw_pages, source):
     location_selector = selectors.get("location")
     date_selector = selectors.get("date")
 
+    link_attr = selectors.get("link_attr", "href")
+    # "href" (standaard) of "onclick" -- zie _extract_url() hierboven.
+    # Nodig voor sites zonder echte <a href>, bv. widgets die met
+    # <div onclick="location.href='...'"> werken.
+
     base_url = settings.get("start_url") or source.url
 
     vacancies = []
@@ -135,15 +190,15 @@ def parse(raw_pages, source):
 
         for item in soup.select(item_selector):
 
-            title_el = item.select_one(title_selector)
+            title_el = item if title_selector == "self" else item.select_one(title_selector)
 
             if not title_el:
                 continue
 
             title = title_el.get_text(" ", strip=True)
 
-            link_el = item.select_one(link_selector)
-            href = link_el.get("href") if link_el else None
+            link_el = item if link_selector == "self" else item.select_one(link_selector)
+            href = _extract_url(link_el, link_attr) if link_el else None
 
             if not href:
                 continue
