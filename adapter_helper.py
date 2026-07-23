@@ -1134,6 +1134,67 @@ def test_source(source, limit=TEST_PREVIEW_LIMIT):
     return result
 
 
+def raw_fetch_debug(source):
+    """
+    Haalt de bron-URL rechtstreeks op met dezelfde fetch_html() die
+    alle adapters gebruiken, en geeft de RUWE respons terug -- lengte,
+    een voorbeeld van de eerste tekens, en een voorzichtige hint of de
+    respons op een blokkade lijkt. Geen enkele adapter- of
+    selector-logica hiertussen.
+
+    Bedoeld voor precies het scenario waar we tegenaan liepen bij Werk
+    bij Dunea: zowel de Adapter Helper als een handmatig ingestelde
+    adapter vonden 0 vacatures. Als BEIDE onafhankelijke paden niets
+    vinden, zit het probleem waarschijnlijk niet bij een selector maar
+    bij wat er al binnenkomt vóórdat er ook maar naar HTML gekeken
+    wordt (blokkade, omleiding, cookie-muur, JavaScript-afhankelijke
+    inhoud). Dit maakt dat verschil zichtbaar zonder dat je een shell
+    in de container hoeft te openen.
+
+    "looks_blocked" is een HINT, geen zekerheid -- gebaseerd op een
+    ongebruikelijk korte respons of een paar veelvoorkomende
+    bot-detectie-teksten. Beoordeel de preview altijd zelf; dit
+    voorkomt alleen dat je die met de hand hoeft te doorzoeken.
+    """
+
+    result = {
+        "url": None,
+        "error": None,
+        "length": None,
+        "preview": None,
+        "looks_blocked": None,
+    }
+
+    settings = load_settings(source)
+    url = settings.get("start_url") or source.url
+    result["url"] = url
+
+    try:
+        html = fetch_html(url)
+    except Exception as error:
+        result["error"] = str(error)
+        return result
+
+    result["length"] = len(html)
+    result["preview"] = html[:2000]
+
+    lowered = html.lower()
+    blocked_hints = [
+        "captcha",
+        "access denied",
+        "are you a robot",
+        "just a moment",
+        "attention required",
+        "checking your browser",
+    ]
+    result["looks_blocked"] = (
+        len(html) < 1000
+        or any(hint in lowered for hint in blocked_hints)
+    )
+
+    return result
+
+
 def _cap_settings_for_test(settings_json, limit):
     """
     Beperkt pagination.max_pages, max_items en max_rows (indien

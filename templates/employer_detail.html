@@ -204,6 +204,14 @@ Bron testen
 </a>
 
 
+<a class="button"
+href="/employer/{{ employer.id }}/raw_fetch">
+
+Ruwe respons bekijken
+
+</a>
+
+
 
 <a class="button"
 href="/employer/{{ employer.id }}/vacancies">
@@ -237,8 +245,54 @@ Verwijderen
 getoond), zonder iets op te slaan of te notificeren -- handig om een
 nieuwe configuratie te checken zonder een volledige controle te
 starten. "Nu controleren" voert de ECHTE scan uit, inclusief opslaan
-en notificaties.
+en notificaties. "Ruwe respons bekijken" haalt de pagina rechtstreeks
+op zonder er een adapter op los te laten -- handig als zowel de
+Adapter Helper als "Bron testen" 0 resultaten geven: dan wil je eerst
+weten of de content er überhaupt is, vóórdat je aan selectors gaat
+sleutelen.
 </p>
+
+
+
+{% if raw_fetch_result %}
+
+<div class="result-box {% if raw_fetch_result.error or raw_fetch_result.looks_blocked %}status-error{% else %}status-ok{% endif %}">
+
+<h4>
+Ruwe respons van {{ raw_fetch_result.url }}
+</h4>
+
+{% if raw_fetch_result.error %}
+
+<p style="color:#b91c1c;">
+Kon de pagina niet ophalen: {{ raw_fetch_result.error }}
+</p>
+
+{% else %}
+
+<p>
+Lengte van de respons: {{ raw_fetch_result.length }} tekens.
+{% if raw_fetch_result.looks_blocked %}
+<strong style="color:#b91c1c;">Dit ziet eruit als een blokkade- of
+bot-detectiepagina</strong> (ongebruikelijk kort, of bevat een
+bekende bot-detectietekst) -- geen zekerheid, maar wel een sterke
+aanwijzing waarom er 0 vacatures gevonden worden. Bekijk de preview
+hieronder om het zelf te beoordelen.
+{% else %}
+Geen tekenen van een blokkade gevonden -- als er hier toch 0
+vacatures uit de adapter komen, ligt het vermoedelijk aan de
+selectors/instellingen, niet aan het ophalen zelf.
+{% endif %}
+</p>
+
+<p class="muted">Eerste 2000 tekens van de respons:</p>
+<pre style="max-height:400px; overflow:auto; white-space:pre-wrap; word-break:break-all;">{{ raw_fetch_result.preview }}</pre>
+
+{% endif %}
+
+</div>
+
+{% endif %}
 
 
 

@@ -40,6 +40,7 @@ from adapters import registry as adapter_registry
 from adapter_helper import analyze as run_adapter_helper
 from adapter_helper import test_source as run_source_test
 from adapter_helper import diagnose_source
+from adapter_helper import raw_fetch_debug
 
 from example_sources import EXAMPLE_SOURCES, get_example
 
@@ -576,6 +577,44 @@ def create_app():
             employer=employer,
             logs=logs,
             test_result=test_result
+        )
+
+
+
+    @app.route(
+        "/employer/<int:id>/raw_fetch"
+    )
+    @login_required
+    def raw_fetch_route(id):
+        """
+        "Ruwe respons bekijken" -- haalt de bron-URL rechtstreeks op,
+        zonder adapter/selector-logica ertussen. Bedoeld voor precies
+        het scenario waarbij zowel de Adapter Helper als een
+        handmatige adapter-configuratie 0 resultaten geven: dan wil je
+        weten of de content er überhaupt is, vóór je aan selectors
+        gaat sleutelen. Zie adapter_helper.raw_fetch_debug().
+        """
+
+        employer = Source.query.get_or_404(
+            id
+        )
+
+
+        logs = ChangeLog.query.filter_by(
+            employer_id=id
+        ).order_by(
+            ChangeLog.created_at.desc()
+        ).all()
+
+
+        raw_fetch_result = raw_fetch_debug(employer)
+
+
+        return render_template(
+            "employer_detail.html",
+            employer=employer,
+            logs=logs,
+            raw_fetch_result=raw_fetch_result
         )
 
 
