@@ -80,9 +80,13 @@ CONSENT_SETTLE_MS = 1000
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 "
-    "VacatureWatcher/2.0"
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+# Zelfde reden als in scraper.py: een UA die zichzelf verraadt als
+# script/tool (zoals voorheen "... VacatureWatcher/2.0" aan het einde)
+# laat sommige sites de aanvraag blokkeren of een afwijkende pagina
+# teruggeven, zonder dat er een foutmelding ontstaat -- je krijgt
+# gewoon 0 resultaten terug.
 
 
 def fetch(source):
