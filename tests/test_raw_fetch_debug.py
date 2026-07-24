@@ -105,3 +105,58 @@ def test_raw_fetch_debug_gebruikt_start_url_uit_settings_indien_aanwezig():
 
     assert result["url"] == "https://example.nl/gefilterd?x=1"
     assert calls == ["https://example.nl/gefilterd?x=1"]
+
+
+def test_raw_fetch_debug_test_item_selector_tegen_verse_respons(monkeypatch):
+    """
+    Kernscenario Werk bij Dunea: de respons komt prima binnen, maar de
+    geconfigureerde selector matcht niets meer (bv. omdat de live site
+    een andere class-naam gebruikt dan een eerder geanalyseerde
+    snapshot). Dit moet zichtbaar zijn als item_selector_matches == 0,
+    niet verstopt in een losse "0 vacatures"-melding elders.
+    """
+
+    html = """
+    <ul>
+      <li><a class="vacature-link" href="/v/1">Een</a></li>
+      <li><a class="vacature-link" href="/v/2">Twee</a></li>
+    </ul>
+    """
+
+    monkeypatch.setattr(adapter_helper, "fetch_html", lambda url: html)
+
+    import json
+
+    source = _source(
+        settings=json.dumps({"selectors": {"item": "a.cssSelectorColor"}})
+    )
+
+    result = adapter_helper.raw_fetch_debug(source)
+
+    assert result["item_selector"] == "a.cssSelectorColor"
+    assert result["item_selector_matches"] == 0  # class bestaat niet (meer) in deze respons
+    assert result["link_count"] == 2  # er zitten wel degelijk <a href>'s in de pagina
+
+
+def test_raw_fetch_debug_zonder_selectors_in_settings_laat_matchveld_leeg(monkeypatch):
+
+    monkeypatch.setattr(adapter_helper, "fetch_html", lambda url: "<html></html>")
+
+    result = adapter_helper.raw_fetch_debug(_source(settings=None))
+
+    assert result["item_selector"] is None
+    assert result["item_selector_matches"] is None
+
+
+def test_raw_fetch_debug_ongeldige_selector_crasht_niet(monkeypatch):
+
+    monkeypatch.setattr(adapter_helper, "fetch_html", lambda url: "<html><body></body></html>")
+
+    import json
+
+    source = _source(settings=json.dumps({"selectors": {"item": ":::geen geldige css:::"}}))
+
+    result = adapter_helper.raw_fetch_debug(source)
+
+    assert result["item_selector_matches"] is not None
+    assert "FOUT" in result["item_selector_matches"]

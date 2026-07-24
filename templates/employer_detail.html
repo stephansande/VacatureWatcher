@@ -272,6 +272,7 @@ Kon de pagina niet ophalen: {{ raw_fetch_result.error }}
 
 <p>
 Lengte van de respons: {{ raw_fetch_result.length }} tekens.
+Aantal `&lt;a href&gt;`-tags in de pagina: {{ raw_fetch_result.link_count }}.
 {% if raw_fetch_result.looks_blocked %}
 <strong style="color:#b91c1c;">Dit ziet eruit als een blokkade- of
 bot-detectiepagina</strong> (ongebruikelijk kort, of bevat een
@@ -279,11 +280,25 @@ bekende bot-detectietekst) -- geen zekerheid, maar wel een sterke
 aanwijzing waarom er 0 vacatures gevonden worden. Bekijk de preview
 hieronder om het zelf te beoordelen.
 {% else %}
-Geen tekenen van een blokkade gevonden -- als er hier toch 0
-vacatures uit de adapter komen, ligt het vermoedelijk aan de
-selectors/instellingen, niet aan het ophalen zelf.
+Geen tekenen van een blokkade gevonden.
 {% endif %}
 </p>
+
+{% if raw_fetch_result.item_selector %}
+<p class="{% if raw_fetch_result.item_selector_matches == 0 %}status-error{% endif %}">
+Geconfigureerde item-selector <code>{{ raw_fetch_result.item_selector }}</code>
+matcht
+<strong>{{ raw_fetch_result.item_selector_matches }}</strong>
+element(en) in DEZE verse respons.
+{% if raw_fetch_result.item_selector_matches == 0 and not raw_fetch_result.looks_blocked %}
+De pagina komt dus prima binnen, maar deze selector matcht er niets
+(meer) in -- de live site gebruikt vermoedelijk een andere
+class/structuur dan waarop deze selector gebaseerd was. Analyseer de
+bron opnieuw (met "Forceer nieuwe analyse") of pas de selector aan op
+basis van de preview hieronder.
+{% endif %}
+</p>
+{% endif %}
 
 <p class="muted">Eerste 2000 tekens van de respons:</p>
 <pre style="max-height:400px; overflow:auto; white-space:pre-wrap; word-break:break-all;">{{ raw_fetch_result.preview }}</pre>

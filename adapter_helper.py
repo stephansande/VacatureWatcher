@@ -1138,18 +1138,14 @@ def raw_fetch_debug(source):
     """
     Haalt de bron-URL rechtstreeks op met dezelfde fetch_html() die
     alle adapters gebruiken, en geeft de RUWE respons terug -- lengte,
-    een voorbeeld van de eerste tekens, en een voorzichtige hint of de
-    respons op een blokkade lijkt. Geen enkele adapter- of
-    selector-logica hiertussen.
-
-    Bedoeld voor precies het scenario waar we tegenaan liepen bij Werk
-    bij Dunea: zowel de Adapter Helper als een handmatig ingestelde
-    adapter vonden 0 vacatures. Als BEIDE onafhankelijke paden niets
-    vinden, zit het probleem waarschijnlijk niet bij een selector maar
-    bij wat er al binnenkomt vóórdat er ook maar naar HTML gekeken
-    wordt (blokkade, omleiding, cookie-muur, JavaScript-afhankelijke
-    inhoud). Dit maakt dat verschil zichtbaar zonder dat je een shell
-    in de container hoeft te openen.
+    een voorbeeld van de eerste tekens, een voorzichtige hint of de
+    respons op een blokkade lijkt, ÉN (als er een "selectors.item" in
+    de instellingen staat) hoeveel elementen die selector in DEZE
+    verse respons matcht. Dat laatste is toegevoegd na het Werk bij
+    Dunea-scenario: nadat bleek dat de respons zelf prima binnenkwam
+    (geen blokkade, normale lengte), was de volgende, voor de hand
+    liggende vraag "matcht mijn selector hier dan wel iets in?" --
+    zonder dat je 2000 tekens HTML handmatig hoeft door te zoeken.
 
     "looks_blocked" is een HINT, geen zekerheid -- gebaseerd op een
     ongebruikelijk korte respons of een paar veelvoorkomende
@@ -1163,6 +1159,9 @@ def raw_fetch_debug(source):
         "length": None,
         "preview": None,
         "looks_blocked": None,
+        "link_count": None,
+        "item_selector": None,
+        "item_selector_matches": None,
     }
 
     settings = load_settings(source)
@@ -1191,6 +1190,21 @@ def raw_fetch_debug(source):
         len(html) < 1000
         or any(hint in lowered for hint in blocked_hints)
     )
+
+    soup = BeautifulSoup(html, "lxml")
+    result["link_count"] = len(soup.find_all("a", href=True))
+
+    item_selector = (settings.get("selectors") or {}).get("item")
+    result["item_selector"] = item_selector
+
+    if item_selector:
+        try:
+            result["item_selector_matches"] = len(soup.select(item_selector))
+        except Exception as error:
+            # een ongeldige/onverwachte CSS-selector mag deze
+            # diagnosepagina niet laten crashen -- toon de fout in
+            # plaats van een aantal
+            result["item_selector_matches"] = f"FOUT bij toepassen selector: {error}"
 
     return result
 
