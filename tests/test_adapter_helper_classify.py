@@ -36,6 +36,7 @@ def _signals(**overrides):
         "meta_generator": None,
         "script_domains": [],
         "js_rendering_hint": None,
+        "discovered_requests": [],
     }
 
     base.update(overrides)
@@ -192,6 +193,118 @@ def test_classify_negeert_greenhouse_als_geen_van_beide_signalen_matcht():
     signals = _signals(
         url="https://werkenbij.acme.nl/vacatures",
         script_domains=["cdn.example.com"],
+        html_listing={"total_matches": 6, "preview": [], "suggested_settings": {}},
+    )
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "html_listing"
+
+
+def _job_list_request(url="https://voorbeeld.nl/api/vacatures"):
+    return {
+        "url": url,
+        "method": "GET",
+        "status": 200,
+        "content_type": "application/json",
+        "is_json": True,
+        "looks_like_job_list": True,
+        "summary": "Array van 2 object(en), velden: title, url",
+        "body_preview": '[{"title": "Data engineer"}]',
+        "items_path_guess": "",
+    }
+
+
+def test_classify_beveelt_discovered_api_aan_bij_een_job_list_kandidaat():
+
+    signals = _signals(discovered_requests=[_job_list_request()])
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "discovered_api"
+    assert result["confidence"] == pytest.approx(0.8)
+    assert result["js_rendering_hint"] is None
+
+
+def test_classify_discovered_api_wint_van_html_listing_en_generic_links():
+
+    signals = _signals(
+        discovered_requests=[_job_list_request()],
+        html_listing={"total_matches": 6, "preview": [], "suggested_settings": {}},
+        generic_links={"count": 20, "preview": []},
+    )
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "discovered_api"
+
+
+def test_classify_jsonld_wint_van_discovered_api():
+    """
+    Kernbeslissing uit stap 4: jsonld/microdata zijn zero-config en
+    schema.org-gestandaardiseerd, dus die winnen van een
+    discovered_api-kandidaat die sowieso een handmatige field_map-stap
+    vergt.
+    """
+
+    signals = _signals(
+        discovered_requests=[_job_list_request()],
+        jsonld={"count": 1, "preview": [], "suggested_settings": {}},
+    )
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "jsonld_listing"
+
+
+def test_classify_greenhouse_wint_van_discovered_api():
+    """
+    Kernbeslissing uit stap 4: een Greenhouse-embed roept intern zelf
+    een JSON-API aan die een discovered_api-kandidaat zou kunnen
+    triggeren -- de kant-en-klare greenhouse-adapter (geen handmatige
+    field_map nodig) moet dan winnen, niet de generieke ontdekking.
+    """
+
+    signals = _signals(
+        url="https://werkenbij.acme.nl/vacatures",
+        script_domains=["boards.greenhouse.io"],
+        discovered_requests=[_job_list_request("https://boards-api.greenhouse.io/v1/boards/acme/jobs")],
+    )
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "greenhouse"
+
+
+def test_classify_negeert_discovered_requests_zonder_job_list_signaal():
+
+    non_job_request = _job_list_request()
+    non_job_request["looks_like_job_list"] = False
+
+    signals = _signals(
+        discovered_requests=[non_job_request],
+        html_listing={"total_matches": 6, "preview": [], "suggested_settings": {}},
+    )
+
+    result = _classify(signals)
+
+    assert result["recommendation"] == "html_listing"
+
+
+def test_classify_alleen_de_eerste_discovered_request_telt():
+    """
+    discovered_requests is al gesorteerd (job-list-achtige kandidaten
+    eerst, zie browser_analysis.py) -- _classify() hoeft dus niet de
+    hele lijst te doorzoeken. Een job-list-match verderop in de lijst
+    (die door een fout in de sortering per ongeluk niet vooraan staat)
+    telt bewust NIET mee.
+    """
+
+    non_job_request = _job_list_request()
+    non_job_request["looks_like_job_list"] = False
+
+    signals = _signals(
+        discovered_requests=[non_job_request, _job_list_request()],
         html_listing={"total_matches": 6, "preview": [], "suggested_settings": {}},
     )
 

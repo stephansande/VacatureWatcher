@@ -14,6 +14,7 @@ from adapters import microdata_listing
 from adapters import browser_listing
 from adapters import cso_api
 from adapters import greenhouse
+from adapters import discovered_api
 from adapters.base import AdapterError
 
 
@@ -25,6 +26,7 @@ ADAPTERS = {
     "browser_listing": browser_listing,
     "cso_api": cso_api,
     "greenhouse": greenhouse,
+    "discovered_api": discovered_api,
 }
 
 

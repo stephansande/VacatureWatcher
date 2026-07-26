@@ -295,9 +295,28 @@ De pagina komt dus prima binnen, maar deze selector matcht er niets
 (meer) in -- de live site gebruikt vermoedelijk een andere
 class/structuur dan waarop deze selector gebaseerd was. Analyseer de
 bron opnieuw (met "Forceer nieuwe analyse") of pas de selector aan op
-basis van de preview hieronder.
+basis van de links hieronder.
 {% endif %}
 </p>
+{% endif %}
+
+{% if raw_fetch_result.links %}
+<p class="muted">
+Alle {{ raw_fetch_result.link_count }} `&lt;a href&gt;`-tags in deze
+respons{% if raw_fetch_result.links_truncated %} (eerste {{ raw_fetch_result.links | length }} getoond){% endif %}:
+</p>
+<div style="max-height:400px; overflow:auto;">
+<table>
+<tr><th>href</th><th>class</th><th>tekst</th></tr>
+{% for link in raw_fetch_result.links %}
+<tr>
+<td style="word-break:break-all;">{{ link.href }}</td>
+<td>{{ link.class or "" }}</td>
+<td>{{ link.text }}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
 {% endif %}
 
 <p class="muted">Eerste 2000 tekens van de respons:</p>

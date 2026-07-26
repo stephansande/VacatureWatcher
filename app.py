@@ -41,6 +41,7 @@ from adapter_helper import analyze as run_adapter_helper
 from adapter_helper import test_source as run_source_test
 from adapter_helper import diagnose_source
 from adapter_helper import raw_fetch_debug
+from adapters import discovered_api
 
 from example_sources import EXAMPLE_SOURCES, get_example
 
@@ -124,6 +125,41 @@ def _apply_suggestion(action, analysis, form_data):
             form_data["settings"] = json.dumps(
                 suggestion, indent=2, ensure_ascii=False
             )
+
+
+def _apply_discovered_api(action, analysis, form_data):
+    """
+    Verwerkt een "Gebruik deze API"-knop bij een ontdekte
+    netwerkverkeer-kandidaat (analysis["discovered_requests"][N], zie
+    browser_analysis.py). Zet adapter op "discovered_api" en stelt
+    endpoint_url/items_path voor -- field_map blijft BEWUST leeg: welke
+    JSON-sleutel bij titel/url/locatie hoort is per site anders, en
+    dat raden zou stille verkeerde matches kunnen opleveren. De
+    gebruiker vult dit zelf in aan de hand van de getoonde
+    body_preview.
+    """
+
+    try:
+        index = int(action.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return
+
+    if not analysis:
+        return
+
+    discovered = analysis.get("discovered_requests") or []
+
+    if index < 0 or index >= len(discovered):
+        return
+
+    candidate = discovered[index]
+
+    form_data["adapter"] = "discovered_api"
+    form_data["settings"] = json.dumps(
+        discovered_api.settings_from_discovered_request(candidate),
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 
@@ -235,6 +271,10 @@ def _render_source_editor(source=None):
         elif action.startswith("apply:"):
 
             _apply_suggestion(action, analysis, form_data)
+
+        elif action.startswith("apply_api:"):
+
+            _apply_discovered_api(action, analysis, form_data)
 
         elif action == "use_example":
 

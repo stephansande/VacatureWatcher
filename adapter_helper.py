@@ -69,7 +69,9 @@ from adapters.microdata_listing import extract_job_posting_elements, read_itempr
 from adapters.base import load_settings, get_keyword_filters, apply_keyword_filter, AdapterError
 
 import site_fingerprint
+import browser_analysis
 from adapters import greenhouse
+from adapters import discovered_api
 
 
 MIN_MATCHES = 3
@@ -77,6 +79,11 @@ MIN_MATCHES_FALLBACK = 2
 MAX_ANCESTOR_LEVELS = 4
 PREVIEW_SIZE = 8
 TEST_PREVIEW_LIMIT = 5
+
+LINK_LIST_LIMIT = 60
+# Maximum aantal <a href>'s dat raw_fetch_debug() volledig oplijst
+# (href + class + tekst). Boven dit aantal wordt alleen het totaal
+# getoond -- zie result["links_truncated"].
 
 VACANCY_KEYWORDS = [
     "vacature",
@@ -299,7 +306,7 @@ def _detect_script_domains(soup, base_url):
     return sorted(domains)
 
 
-def _gather_signals(html, url, soup=None):
+def _gather_signals(html, url, soup=None, discovered_requests=None):
     """Verzamelt ruwe features, zonder al een aanbeveling te maken."""
 
     if soup is None:
@@ -315,11 +322,25 @@ def _gather_signals(html, url, soup=None):
         "meta_generator": _detect_meta_generator(soup),
         "script_domains": _detect_script_domains(soup, url),
         "js_rendering_hint": _suspect_js_rendering(html),
+        "discovered_requests": discovered_requests or [],
     }
 
 
 def _classify(signals):
-    """Beslist, puur op basis van signalen, welke adapter wint."""
+    """
+    Beslist, puur op basis van signalen, welke adapter wint.
+
+    Volgorde: greenhouse (harde fingerprint-match) > jsonld > microdata
+    > discovered_api > html_listing > generic_links. discovered_api
+    staat bewust NA de drie zero-config, kant-en-klare methodes (een
+    Greenhouse-embed roept intern ook een JSON-API aan die als
+    discovered_api-kandidaat zou kunnen matchen -- dan geeft de
+    kant-en-klare greenhouse-adapter een beter resultaat dan een
+    discovered_api-voorstel met een leeg field_map), maar wel VÓÓR de
+    twee HTML-heuristieken: een echte JSON-API is architecturaal
+    robuuster dan op CSS-structuur gokken, ook al vraagt discovered_api
+    altijd nog een handmatige field_map-stap.
+    """
 
     if greenhouse.matches_fingerprint(signals.get("url"), signals.get("script_domains")):
         return {
@@ -332,6 +353,8 @@ def _classify(signals):
         recommendation = "jsonld_listing"
     elif signals.get("microdata"):
         recommendation = "microdata_listing"
+    elif _has_discovered_job_list(signals):
+        recommendation = "discovered_api"
     elif signals.get("html_listing"):
         recommendation = "html_listing"
     elif signals.get("generic_links"):
@@ -349,6 +372,20 @@ def _classify(signals):
         "confidence": confidence,
         "js_rendering_hint": signals.get("js_rendering_hint") if recommendation is None else None,
     }
+
+
+def _has_discovered_job_list(signals):
+    """
+    True als de sterkste kandidaat in signals["discovered_requests"]
+    op een vacaturelijst lijkt. De lijst is al gesorteerd door
+    browser_analysis.render_page_capturing_requests() (job-list-achtige
+    kandidaten eerst), dus alleen index 0 hoeft gecontroleerd te
+    worden.
+    """
+
+    discovered_requests = signals.get("discovered_requests") or []
+
+    return bool(discovered_requests and discovered_requests[0].get("looks_like_job_list"))
 
 
 def analyze(url, force_refresh=False):
@@ -374,6 +411,7 @@ def analyze(url, force_refresh=False):
         "cache_confidence": None,
         "cached_settings": None,
         "recommended_settings": None,
+        "discovered_requests": [],
     }
 
     cached = None if force_refresh else site_fingerprint.lookup(url)
@@ -387,14 +425,19 @@ def analyze(url, force_refresh=False):
         return result
 
     try:
-        html = fetch_html(url)
+        html, discovered_requests = browser_analysis.fetch_rendered_html_with_requests(url)
+    except browser_analysis.BrowserUnavailableError as error:
+        result["fetch_error"] = str(error)
+        return result
     except Exception as error:
         result["fetch_error"] = str(error)
         return result
 
+    result["discovered_requests"] = discovered_requests
+
     soup = BeautifulSoup(html, "lxml")
 
-    signals = _gather_signals(html, url, soup=soup)
+    signals = _gather_signals(html, url, soup=soup, discovered_requests=discovered_requests)
     classification = _classify(signals)
 
     pagination_settings = None
@@ -430,6 +473,7 @@ def analyze(url, force_refresh=False):
             "html_listing": result["html_listing"],
             "generic_links": None,
             "greenhouse": None,
+            "discovered_api": None,
         }
 
         candidate = candidate_by_recommendation.get(result["recommendation"])
@@ -441,6 +485,17 @@ def analyze(url, force_refresh=False):
             # greenhouse.io-URL) -- dan moet board_token straks
             # handmatig ingevuld worden, zie adapters/greenhouse.py
             suggested_settings = {"board_token": board_token} if board_token else None
+
+        elif result["recommendation"] == "discovered_api":
+            # discovered_requests is al gesorteerd (job-list-achtige
+            # kandidaten eerst, zie browser_analysis.py) -- index 0 is
+            # dus dezelfde kandidaat die _has_discovered_job_list()
+            # beoordeelde. Zelfde opbouw als de "Gebruik deze API"-knop
+            # (app.py._apply_discovered_api), bewust gedeeld via
+            # discovered_api.settings_from_discovered_request() zodat
+            # beide nooit uit de pas kunnen lopen.
+            winning_request = signals["discovered_requests"][0]
+            suggested_settings = discovered_api.settings_from_discovered_request(winning_request)
 
         result["recommended_settings"] = suggested_settings
 
@@ -1160,6 +1215,8 @@ def raw_fetch_debug(source):
         "preview": None,
         "looks_blocked": None,
         "link_count": None,
+        "links": None,
+        "links_truncated": None,
         "item_selector": None,
         "item_selector_matches": None,
     }
@@ -1192,7 +1249,25 @@ def raw_fetch_debug(source):
     )
 
     soup = BeautifulSoup(html, "lxml")
-    result["link_count"] = len(soup.find_all("a", href=True))
+    all_links = soup.find_all("a", href=True)
+    result["link_count"] = len(all_links)
+
+    # Bij een klein aantal links (zoals bij Werk bij Dunea: 24) is een
+    # volledige lijst met href + class veel bruikbaarder dan een
+    # afgekapte HTML-preview van de eerste 2000 tekens -- die preview
+    # bevat bij een lange pagina vaak alleen de <head>, terwijl de
+    # vacatures verderop staan. Bewust een limiet (LINK_LIST_LIMIT)
+    # om deze pagina bij honderden links niet onbruikbaar traag/lang
+    # te maken.
+    result["links"] = [
+        {
+            "href": a.get("href"),
+            "class": " ".join(a.get("class") or []) or None,
+            "text": a.get_text(" ", strip=True)[:60],
+        }
+        for a in all_links[:LINK_LIST_LIMIT]
+    ]
+    result["links_truncated"] = len(all_links) > LINK_LIST_LIMIT
 
     item_selector = (settings.get("selectors") or {}).get("item")
     result["item_selector"] = item_selector

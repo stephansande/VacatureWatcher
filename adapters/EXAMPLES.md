@@ -5,6 +5,42 @@ Deze waarden vul je in bij het aanmaken/bewerken van een Source
 ÉÉN generieke `settings`-kolom (JSON) -- zie `adapters/base.py` voor
 `load_settings()`.
 
+## Ontdekt JSON-endpoint (adapter: `discovered_api`)
+
+Ontstaat via "Analyseren": als de pagina tijdens het laden een eigen
+JSON-API aanroept (bv. `/api/vacatures`) die op een vacaturelijst
+lijkt, wordt dat automatisch als aanbevolen adapter voorgesteld (ná
+Greenhouse/JSON-LD/microdata, vóór de HTML-heuristieken) -- of, als
+het niet de sterkste kandidaat is, verschijnt de kandidaat los onder
+"Ontdekt netwerkverkeer tijdens het laden" met een eigen "Gebruik deze
+API"-knop. Beide vullen `endpoint_url` en (indien van toepassing)
+`items_path` automatisch in -- `field_map` blijft BEWUST leeg, want
+welke JSON-sleutel bij welk vacature-veld hoort is per site anders.
+
+Voorbeeld, voor een fictieve respons
+`[{"functietitel": "...", "link": "...", "plaats": "..."}]`:
+```json
+{
+  "endpoint_url": "https://voorbeeld.nl/api/vacatures",
+  "method": "GET",
+  "base_url": "https://voorbeeld.nl",
+  "field_map": {
+    "title": "functietitel",
+    "url": "link",
+    "location": "plaats"
+  }
+}
+```
+
+Zit de array niet op het top-niveau van de respons maar achter een
+sleutel (bv. `{"results": [...], "total": 12}`), zet dan
+`"items_path": "results"`.
+
+LET OP: dit is geen officiële, gedocumenteerde API zoals `cso_api`
+of `greenhouse` -- het is een intern endpoint dat de website zelf
+gebruikt. Kan zonder aankondiging veranderen; test met "Bron testen"
+na het instellen.
+
 ## Greenhouse-boards (adapter: `greenhouse`)
 
 Werkt via de publieke Greenhouse Job Board API (`boards-api.greenhouse.io`)
@@ -110,11 +146,14 @@ te configureren.
 
 ## Sites die vacatures via JavaScript laden (adapter: `browser_listing`)
 
-Gebruik dit ALLEEN als de andere adapters aantoonbaar niets vinden --
-check dit via **Systeem → Diagnose**, die meldt "vermoedelijk
-JavaScript-rendering" als de statische HTML leeg lijkt. Vereist een
-losse installatiestap, zie `requirements-browser.txt` en de docstring
-in `adapters/browser_listing.py`.
+Playwright + Chromium zitten standaard in de Docker-image, geen losse
+installatiestap meer nodig. Gebruik deze adapter voor de GEPLANDE
+controles alleen als de andere adapters aantoonbaar niets vinden --
+"Analyseren" gebruikt zelf altijd al een browser (zie
+`browser_analysis.py`) en zal JavaScript-afhankelijke content dus
+meestal al vanzelf herkennen; dit is voor de dagelijkse controle zelf,
+die niet standaard een (tragere) browser gebruikt tenzij je dat hier
+expliciet instelt.
 
 ```json
 {

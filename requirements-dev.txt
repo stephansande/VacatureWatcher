@@ -1,5 +1,5 @@
 # Alleen nodig voor lokaal testen, niet voor de Docker-image zelf
-# (blijft dus bewust los van requirements.txt en requirements-browser.txt).
+# (blijft dus bewust los van requirements.txt).
 #
 # Gebruik:
 #   pip install -r requirements-dev.txt --break-system-packages

@@ -52,6 +52,17 @@ FRESHNESS_DAYS = 30
 
 CONFIDENCE_JSONLD = 0.95
 CONFIDENCE_MICRODATA = 0.9
+CONFIDENCE_DISCOVERED_API = 0.8
+# Hoger dan CONFIDENCE_HTML_LISTING: echte, getypeerde JSON-data met
+# suggestieve veldnamen (title/vacature/functie in de keys) is
+# betrouwbaarder dan op DOM-structuur gokken -- geen risico op per
+# ongeluk een navigatielink meepakken, zoals bij html_listing kan
+# gebeuren (zie het Gemeentebanen-scenario). Lager dan
+# CONFIDENCE_MICRODATA/CONFIDENCE_JSONLD: dit is een losse
+# sleutelnaam-heuristiek zonder schema.org-garantie, en de aanbeveling
+# is NOOIT meteen kant-en-klaar (field_map blijft altijd leeg, zie
+# adapters/discovered_api.py) -- er is dus sowieso een handmatige stap
+# nodig vóór het werkt, in tegenstelling tot jsonld/microdata/greenhouse.
 CONFIDENCE_HTML_LISTING = 0.7
 CONFIDENCE_GENERIC_LINKS = 0.35
 CONFIDENCE_GREENHOUSE = 0.98
@@ -135,6 +146,7 @@ def confidence_for(recommendation):
     return {
         "jsonld_listing": CONFIDENCE_JSONLD,
         "microdata_listing": CONFIDENCE_MICRODATA,
+        "discovered_api": CONFIDENCE_DISCOVERED_API,
         "html_listing": CONFIDENCE_HTML_LISTING,
         "generic_links": CONFIDENCE_GENERIC_LINKS,
         "greenhouse": CONFIDENCE_GREENHOUSE,

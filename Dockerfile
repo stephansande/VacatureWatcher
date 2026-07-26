@@ -4,6 +4,16 @@ FROM python:3.12-slim
 WORKDIR /app
 
 
+# Vaste, voorspelbare locatie voor de Chromium-browser die Playwright
+# straks installeert -- BINNEN /app, zodat de "chown -R appuser:appuser
+# /app"-stap verderop 'm ook meepakt. Zonder dit zou "playwright
+# install" (draait als root tijdens het bouwen) de browser wegzetten
+# in /root/.cache/ms-playwright, een map die appuser tijdens het
+# draaien niet kan lezen -- Playwright zou dan pas bij de eerste
+# ECHTE poging tot renderen falen, niet bij het bouwen van de image.
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
+
+
 COPY requirements.txt .
 
 
@@ -29,16 +39,18 @@ RUN pip install --no-cache-dir \
     -r requirements.txt
 
 
-# --- Optioneel: adapters/browser_listing.py (JavaScript-gerenderde
-# vacaturesites, bv. via een headless Chromium-browser). Voegt
-# honderden MB's toe aan de image, dus standaard uitgeschakeld.
-# Ontkommentarieer onderstaande twee regels als je deze adapter wilt
-# gebruiken (en verwijder de eerste regel hieronder als je 'm alsnog
-# via requirements.txt wilt laten meelopen):
-#
-# COPY requirements-browser.txt .
-# RUN pip install --no-cache-dir -r requirements-browser.txt \
-#     && playwright install --with-deps chromium
+# Playwright + Chromium: sinds "Analyseren" zelf ook een echte
+# (headless) browser gebruikt (zie browser_analysis.py) is dit geen
+# optionele dependency meer, maar standaard nodig -- niet alleen voor
+# adapters/browser_listing.py. Dit voegt aanzienlijk toe aan de
+# image-grootte (een volledige Chromium-binary, honderden MB's) en de
+# bouwtijd -- een bewuste afweging: zonder een echte browser tijdens
+# analyse zou VacatureWatcher JavaScript-afhankelijke vacaturesites
+# (bv. Werken bij Wassenaar) stelselmatig verkeerd beoordelen.
+# --with-deps installeert ook de systeembibliotheken die Chromium
+# nodig heeft (via apt) -- vandaar dat dit als root moet draaien,
+# vóór de "useradd"/rechten-stap verderop.
+RUN playwright install --with-deps chromium
 
 
 
