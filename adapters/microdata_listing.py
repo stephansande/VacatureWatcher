@@ -64,7 +64,17 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "always",
 }
+
+
+def validate_settings(settings, url):
+    """Zelfde regel als jsonld_listing.validate_settings() -- zie daar."""
+
+    if settings.get("mode") == "detail" and not settings.get("link_selector"):
+        return "settings.link_selector ontbreekt (verplicht bij mode \"detail\")."
+
+    return None
 
 
 def fetch(source):
@@ -128,7 +138,7 @@ def extract_job_posting_elements(html):
     """
     Zoekt alle elementen met itemscope + itemtype die op
     schema.org/JobPosting wijzen. Publiek (geen underscore-prefix)
-    zodat adapter_helper.py dit kan hergebruiken voor detectie.
+    zodat signal_detection.py dit kan hergebruiken voor detectie.
     """
 
     soup = BeautifulSoup(html, "lxml")
@@ -146,12 +156,12 @@ def extract_job_posting_elements(html):
 
 
 def read_itemprop_text(scope_element, prop_name):
-    """Publieke wrapper rond _read_itemprop_text, voor hergebruik door adapter_helper.py."""
+    """Publieke wrapper rond _read_itemprop_text, voor hergebruik door signal_detection.py."""
     return _read_itemprop_text(scope_element, prop_name)
 
 
 def read_itemprop_url(scope_element, prop_name):
-    """Publieke wrapper rond _read_itemprop_url, voor hergebruik door adapter_helper.py."""
+    """Publieke wrapper rond _read_itemprop_url, voor hergebruik door signal_detection.py."""
     return _read_itemprop_url(scope_element, prop_name)
 
 

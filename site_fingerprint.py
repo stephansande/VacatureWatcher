@@ -25,7 +25,7 @@ Gebruik (zie adapter_helper.analyze() voor de volledige integratie):
         # met de uitkomst
         save(url, adapter=..., settings_dict=..., confidence=...)
 
-Ontwerpprincipe, in lijn met de rest van adapter_helper.py: dit is geen
+Ontwerpprincipe, in lijn met de rest van de Website Detective-code: dit is geen
 onomkeerbare beslissing. Een verouderde fingerprint wordt niet
 stilzwijgend weggegooid maar teruggegeven met is_fresh() == False, zodat
 de aanroeper zelf kan kiezen (bv. "eerder gedetecteerd als X, mogelijk
@@ -52,6 +52,15 @@ FRESHNESS_DAYS = 30
 
 CONFIDENCE_JSONLD = 0.95
 CONFIDENCE_MICRODATA = 0.9
+CONFIDENCE_EMBEDDED_JSON = 0.82
+# Tussen CONFIDENCE_MICRODATA en CONFIDENCE_DISCOVERED_API in --
+# iets betrouwbaarder dan discovered_api (een hydration-payload zit
+# gegarandeerd al in de eerste pagina-aanvraag, geen
+# op-tijd-binnen-het-render-venster-race zoals bij een aparte
+# XHR-aanroep), maar dezelfde soort sleutelnaam-heuristiek, dus nog
+# altijd lager dan de schema.org-gestandaardiseerde JSON-LD/microdata.
+# Gekoppeld in confidence_for() hieronder sinds adapters/embedded_json.py
+# bestaat (die de payload kan hergebruiken voor de geplande controles).
 CONFIDENCE_DISCOVERED_API = 0.8
 # Hoger dan CONFIDENCE_HTML_LISTING: echte, getypeerde JSON-data met
 # suggestieve veldnamen (title/vacature/functie in de keys) is
@@ -146,6 +155,7 @@ def confidence_for(recommendation):
     return {
         "jsonld_listing": CONFIDENCE_JSONLD,
         "microdata_listing": CONFIDENCE_MICRODATA,
+        "embedded_json": CONFIDENCE_EMBEDDED_JSON,
         "discovered_api": CONFIDENCE_DISCOVERED_API,
         "html_listing": CONFIDENCE_HTML_LISTING,
         "generic_links": CONFIDENCE_GENERIC_LINKS,

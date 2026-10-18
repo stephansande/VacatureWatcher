@@ -15,6 +15,7 @@ from adapters import browser_listing
 from adapters import cso_api
 from adapters import greenhouse
 from adapters import discovered_api
+from adapters import embedded_json
 from adapters.base import AdapterError
 
 
@@ -27,6 +28,7 @@ ADAPTERS = {
     "cso_api": cso_api,
     "greenhouse": greenhouse,
     "discovered_api": discovered_api,
+    "embedded_json": embedded_json,
 }
 
 
@@ -59,6 +61,45 @@ def get_capabilities(adapter_name):
     adapter = get(adapter_name)
 
     return getattr(adapter, "CAPABILITIES", {})
+
+
+def validate_settings(adapter_name, settings_dict, url=None):
+    """
+    Structurele pre-opslaan-validatie: vraagt de adapter zelf of
+    `settings_dict` (en, voor greenhouse, de bron-URL) er compleet
+    genoeg uitziet om te kunnen draaien -- VÓÓR er ook maar een
+    request de deur uit gaat (dat is de live-validatie hieronder in
+    app.py, via diagnostics.test_source()).
+
+    Elke adapter mag optioneel een eigen
+    `validate_settings(settings_dict, url)` functie definiëren die
+    None (alles in orde) of een foutmelding-string teruggeeft -- zie
+    adapters/html_listing.py of adapters/embedded_json.py voor
+    voorbeelden. Een adapter zonder eigen implementatie (bv.
+    generic_links, dat niets aan settings vereist) wordt stilzwijgend
+    als geldig beschouwd.
+
+    Bewust een FUNCTIE per adapter i.p.v. een declaratieve
+    "REQUIRED_SETTINGS"-lijst hier centraal: sommige vereisten zijn
+    voorwaardelijk (jsonld_listing.link_selector is alleen verplicht
+    bij mode "detail", browser_listing.selectors.item alleen bij
+    parse_as "html_listing") of hebben een fallback buiten settings om
+    (greenhouse.board_token mag ontbreken als de URL zelf op
+    boards.greenhouse.io draait) -- dat soort logica past niet netjes
+    in een simpele "deze sleutels moeten aanwezig zijn"-lijst, en elke
+    adapter kent zijn eigen vereisten toch al het best (dezelfde
+    redenering als waarom fetch()/parse() zelf ook per adapter
+    verschillen).
+    """
+
+    adapter = get(adapter_name)
+
+    validator = getattr(adapter, "validate_settings", None)
+
+    if validator is None:
+        return None
+
+    return validator(settings_dict, url)
 
 
 def get_description(adapter_name):

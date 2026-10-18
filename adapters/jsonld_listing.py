@@ -58,7 +58,24 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "always",
 }
+
+
+def validate_settings(settings, url):
+    """
+    Structurele check vóór opslaan: mode "detail" heeft een
+    link_selector nodig om van de listing-pagina naar de aparte
+    detailpagina's te navigeren (zie fetch_detail_pages() in
+    adapters/base.py, die dit anders pas runtime als AdapterError zou
+    opgooien). Mode "listing" (de standaard) heeft geen extra
+    verplichte velden.
+    """
+
+    if settings.get("mode") == "detail" and not settings.get("link_selector"):
+        return "settings.link_selector ontbreekt (verplicht bij mode \"detail\")."
+
+    return None
 
 
 def fetch(source):
@@ -155,12 +172,12 @@ def _extract_location(job_location):
 
 
 def extract_job_postings(html):
-    """Publieke wrapper rond _extract_job_postings, voor hergebruik door adapter_helper.py."""
+    """Publieke wrapper rond _extract_job_postings, voor hergebruik door signal_detection.py."""
     return _extract_job_postings(html)
 
 
 def strip_html(text):
-    """Publieke wrapper rond _strip_html, voor hergebruik door adapter_helper.py."""
+    """Publieke wrapper rond _strip_html, voor hergebruik door signal_detection.py."""
     return _strip_html(text)
 
 

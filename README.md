@@ -11,95 +11,6 @@ in een lokale SQLite-database.
 
 ---
 
-## Wat is er nieuw in v2
-
-v1 kon alleen simpele werkgeverspagina's volgen (één link-scrapertje
-voor iedereen). v2 voegt een **adapter-architectuur** toe: per bron
-kies je hoe die uitgelezen wordt, en een ingebouwde **Adapter Helper**
-zoekt dat grotendeels voor je uit.
-
-* Eén bron-formulier voor zowel werkgevers als vacatureplatforms
-* Vier adapters: gestructureerde data (JSON-LD/microdata) met
-  voorrang boven CSS-selectors, plus een generieke fallback
-* Adapter Helper: geef een URL op, en de applicatie test automatisch
-  welke aanpak werkt -- inclusief locatie, datum en paginering
-* "Bron testen": een snelle preview zonder een volledige scan te
-  starten
-* Bronstatus per bron: laatste (succesvolle) controle, laatste fout,
-  aantal nieuwe vacatures
-* Systeem → Adapters: overzicht van alle adapters en wat ze
-  ondersteunen
-* Een kleine bibliotheek met voorbeeldbronnen om mee te beginnen
-
-## Wat is er nieuw in v3
-
-v3 herbouwt de Adapter Helper van "HTML → JSON in één stap" naar een
-**Website Detective**-pijplijn (Analyse → Detectie → Adapter → JSON),
-met als doel: minder gokwerk bij herhaalde analyses, en herkenning van
-bekende ATS-platformen zonder heuristieken.
-
-* **Detectie met geheugen**: een domein dat al eerder succesvol
-  geanalyseerd is, wordt bij een volgende analyse direct herkend
-  zonder de pagina opnieuw zwaar te hoeven doorzoeken (`site_fingerprint.py`).
-  Vink "Forceer nieuwe analyse" aan bij **Analyseren** om dit te
-  negeren en alsnog een volledige, verse detectie te draaien.
-* **`greenhouse`-adapter**: automatische herkenning van Greenhouse
-  Job Board-vacatures (`boards.greenhouse.io`, of een embed-widget op
-  een eigen domein), via de officiële, stabiele Job Board API in
-  plaats van HTML-scraping.
-* **"Ruwe respons bekijken"**: knop op de bronpagina die de bron-URL
-  rechtstreeks ophaalt (kale fetch, geen adapter ertussen) en toont
-  wat er echt binnenkomt -- lengte, alle `<a href>`-links, een
-  blokkade-hint, en of de geconfigureerde selector er iets in matcht.
-  Bedoeld voor het scenario waarbij zowel de Adapter Helper als een
-  handmatige adapter 0 vacatures vinden: eerst uitsluiten of het
-  probleem bij het ophalen zit vóór je aan selectors gaat sleutelen.
-* **Controledagen per bron**: naast het bestaande controle-interval
-  (dagelijks/wekelijks) kun je nu ook zelf kiezen op welke dagen van
-  de week een bron gecontroleerd mag worden.
-* **Tijdlijn** (`/vacatures/tijdlijn`): chronologisch overzicht van
-  alle vacatures over alle bronnen heen (datum -- vacature -- bron),
-  als aanvulling op het bestaande per-bron overzicht.
-* **Geautomatiseerde image-builds**: `.github/workflows/docker-publish.yml`
-  bouwt en publiceert bij elke push naar `main` een multi-arch
-  (`amd64`/`arm64`) Docker image naar GitHub Container Registry --
-  `docker-compose.yml` trekt die binnen (`image: ghcr.io/...`), je NAS
-  hoeft dus niet zelf te bouwen.
-* **"Analyseren" gebruikt nu altijd een echte browser** (Playwright/
-  Chromium, via het nieuwe `browser_analysis.py`), niet langer een
-  kale HTTP-fetch. Reden: sommige sites laden hun vacaturewidget pas
-  na JavaScript (zoals we bij Werken bij Wassenaar en vermoedelijk
-  Werk bij Dunea tegenkwamen) -- een kale fetch zag dan simpelweg
-  andere/lege HTML dan wat een bezoeker in de browser ziet, wat tot
-  een verkeerde of ontbrekende aanbeveling leidde. `browser_listing`
-  (voor de geplande controles) gebruikt dezelfde gedeelde
-  infrastructuur, zodat analyse en daadwerkelijke controle altijd
-  consistent gedrag vertonen. Kost wel een grotere Docker-image en een
-  tragere analyse dan voorheen -- zie "Vereisten".
-* **"Analyseren" vangt nu ook netwerkverkeer op** tijdens het laden
-  van de pagina: XHR/fetch-aanroepen (dus geen afbeeldingen/fonts/CSS,
-  en bekende analytics-/advertentiedomeinen worden ook weggefilterd),
-  met een voorzichtige hint of een JSON-respons "op een vacaturelijst
-  lijkt". Te zien als nieuwe sectie bij de analyseresultaten. Er
-  worden nooit cookies of request-/response-headers bewaard, alleen
-  URL, methode, status, content-type en (indien JSON) de body.
-* **Nieuwe adapter `discovered_api`**: hergebruikt zo'n ontdekt
-  JSON-endpoint voor de geplande controles. Wordt inmiddels ook
-  AUTOMATISCH aanbevolen door de Adapter Helper als de sterkste
-  kandidaat op een vacaturelijst lijkt -- na de kant-en-klare opties
-  (Greenhouse/JSON-LD/microdata), maar vóór de twee HTML-heuristieken
-  (een echte JSON-API is architecturaal robuuster dan op CSS-structuur
-  gokken). Vult `endpoint_url`/`items_path` automatisch in; `field_map`
-  (welke JSON-sleutel bij titel/url/locatie hoort) laat je bewust zelf
-  invullen aan de hand van de getoonde respons -- dat raden zou stille
-  verkeerde matches kunnen opleveren.
-* Interne herstructurering van de detectielogica in twee losse,
-  onafhankelijk testbare stappen (`_gather_signals`/`_classify`), met
-  een bijbehorende, groeiende `pytest`-testsuite (`tests/`, 89 tests) --
-  zie "Testen" verderop in dit document.
-
----
-
 ## Functies
 
 ### Bronnen beheren
@@ -109,6 +20,8 @@ bekende ATS-platformen zonder heuristieken.
 * Eén editor voor toevoegen én wijzigen, met de Adapter Helper erin
   ingebouwd
 * Bronnen wijzigen, verwijderen, handmatig controleren of testen
+* Naast het controle-interval (dagelijks/wekelijks) kun je per bron
+  ook zelf kiezen op welke dagen van de week een controle mag draaien
 
 ### Adapters
 
@@ -121,20 +34,21 @@ volledige uitleg.
 |---|---|---|---|---|---|---|---|
 | `jsonld_listing` | schema.org JobPosting als JSON-LD | ja | nee | ja | ja | ja | nee |
 | `microdata_listing` | schema.org JobPosting als HTML-attributen | ja | nee | ja | ja | ja | nee |
+| `embedded_json` | Hydration-payload in de pagina-bron (bv. Next.js/Nuxt) | nee | nee | nee | ja | ja | nee |
 | `html_listing` | herhalende HTML-blokken, via CSS-selectors | ja | ja | nee | ja | ja | nee |
 | `browser_listing` | sites die vacatures via JavaScript laden (headless Chromium) | ja | nee | nee | ja | ja | nee |
-| `generic_links` | simpele "vacature-achtige" links (v1-aanpak) | nee | nee | nee | nee | nee | nee |
+| `generic_links` | simpele "vacature-achtige" links | nee | nee | nee | nee | nee | nee |
 | `cso_api` | CSO Vacature-API (Werken voor Nederland e.a.) | nee | ja | nee | nee | nee | ja |
 | `greenhouse` | Greenhouse Job Board API (automatisch gedetecteerd) | nee | nee | nee | ja | ja | nee |
 | `discovered_api` | Site-eigen JSON-endpoint, ontdekt tijdens Analyseren | nee | nee | nee | ja | ja | nee |
 
-`browser_listing` vereist geen account en geen losse installatiestap
-meer -- Playwright + Chromium zitten standaard in de Docker-image
-(sinds "Analyseren" zelf ook altijd een echte browser gebruikt, zie
-"Wat is er nieuw" hierboven). Gebruik deze adapter voor geplande
-controles alleen als de andere adapters aantoonbaar niets vinden (zie
-**Systeem → Diagnose** hieronder) -- een browser is trager en zwaarder
-dan een simpele HTTP-fetch, dus niet de standaardkeuze voor elke bron.
+`browser_listing` en `embedded_json` vereisen geen account, maar
+gebruiken bij de geplande controle wel een echte headless browser
+(Playwright/Chromium, standaard onderdeel van de Docker-image) --
+trager en zwaarder dan een simpele HTTP-fetch, dus niet de
+standaardkeuze voor elke bron. Gebruik ze voor geplande controles
+alleen als de andere adapters aantoonbaar niets vinden (zie
+**Systeem → Diagnose** hieronder).
 
 Dit overzicht staat ook live in de applicatie onder **Systeem →
 Adapters**, inclusief hoeveel bronnen elke adapter op dit moment
@@ -145,28 +59,34 @@ gebruiken.
 Bij het toevoegen of wijzigen van een bron kun je op "Analyseren"
 klikken. Als het domein nog niet eerder (recent) geanalyseerd is,
 opent de applicatie de pagina in een echte (headless) browser
-(Playwright/Chromium, zie `browser_analysis.py`) -- niet langer een
-kale HTTP-fetch, juist omdat sommige sites hun vacatures pas na
-JavaScript tonen. Op de gerenderde pagina probeert de Adapter Helper,
-in volgorde van voorkeur:
+(Playwright/Chromium, zie `browser_analysis.py`) -- niet een kale
+HTTP-fetch, juist omdat sommige sites hun vacatures pas na JavaScript
+tonen. Op de gerenderde pagina probeert de Adapter Helper, in volgorde
+van voorkeur:
 
 1. Een harde fingerprint-match met een bekend platform (op dit moment:
    Greenhouse, via een `greenhouse.io`-scriptbron of -URL) -- adapter
    `greenhouse`
 2. JSON-LD (schema.org JobPosting)
 3. Microdata (schema.org, als HTML-attributen)
-4. Een ontdekt, site-eigen JSON-endpoint dat op een vacaturelijst
+4. Een gevonden hydration-payload die het framework al in de EERSTE
+   HTML-bron meestuurt (zie "Embedded JSON" hieronder) -- adapter
+   `embedded_json`
+5. Een ontdekt, site-eigen JSON-endpoint dat op een vacaturelijst
    lijkt (zie "Ontdekt netwerkverkeer" hieronder) -- adapter
    `discovered_api`
-5. Een herhalend HTML-blok rond vacature-achtige links -- of, als dat
+6. Een herhalend HTML-blok rond vacature-achtige links -- of, als dat
    niets oplevert, rond herhalende koppen (`<h2>`/`<h3>`/`<h4>`)
-6. Generieke links (werkt bijna altijd wel een beetje)
+7. Generieke links (werkt bijna altijd wel een beetje)
 
-`discovered_api` staat bewust ná de eerste drie (zero-config,
-gestandaardiseerde) methodes maar vóór de twee HTML-heuristieken: een
-echte JSON-API is robuuster dan op CSS-structuur gokken, maar vraagt
-altijd nog een handmatige stap (zie hieronder) terwijl greenhouse/
-JSON-LD/microdata meteen kant-en-klaar zijn.
+`embedded_json` en `discovered_api` staan bewust ná de eerste drie
+(zero-config, gestandaardiseerde) methodes maar vóór de twee
+HTML-heuristieken: een echte JSON-bron is robuuster dan op
+CSS-structuur gokken, maar vraagt altijd nog een handmatige stap (zie
+hieronder) terwijl greenhouse/JSON-LD/microdata meteen kant-en-klaar
+zijn. `embedded_json` staat vóór `discovered_api`: een hydration-
+payload zit gegarandeerd al in de eerste pagina-aanvraag, een ontdekt
+netwerk-endpoint is iets minder zeker aanwezig.
 
 Voor elke kandidaat die iets vindt, zie je een preview van de
 gevonden vacatures (titel, en waar mogelijk locatie/datum) vóórdat je
@@ -187,6 +107,17 @@ sterkste kandidaat is -- automatisch aanbevolen als `discovered_api`.
 (welke JSON-sleutel bij titel/url/locatie hoort) laat de applicatie
 bewust LEEG: dat verschilt per site en wordt niet geraden.
 
+**Embedded JSON**: sommige sites (met name Next.js/Nuxt/Vue-gebouwde
+"werken bij"-pagina's) zetten hun vacaturedata al als JSON in de
+EERSTE HTML-pagina zelf (geen aparte netwerkaanroep nodig) -- bv.
+Next.js' `<script id="__NEXT_DATA__">` of Nuxt's `window.__NUXT__=`.
+Wordt dat gevonden, dan zie je dat als aparte sectie met een "Gebruik
+deze instellingen"-knop als het de sterkste kandidaat is; adapter
+`embedded_json` haalt de pagina bij elke geplande controle opnieuw op
+(via dezelfde headless browser als "Analyseren") om bij die payload te
+kunnen. `items_path` wordt automatisch voorgesteld, `field_map` laat
+je -- net als bij `discovered_api` -- bewust zelf invullen.
+
 **Detectie met geheugen**: een domein dat al eerder succesvol
 geanalyseerd is (binnen de laatste 30 dagen), wordt bij een volgende
 analyse direct herkend zonder de pagina opnieuw te hoeven doorzoeken
@@ -198,10 +129,43 @@ website intussen van structuur veranderd is).
 Belangrijk: deze detectie draait alléén als je zelf op "Analyseren"
 klikt. De geplande controles draaien op de vaste selectors/instellingen
 die je opslaat, niet op een herhaalde live gok -- dat houdt het
-gedrag van een bron voorspelbaar. Alleen adapters `browser_listing`
-en `discovered_api` (als je die kiest) doen bij de geplande controle
-zelf ook weer een live aanroep; de andere adapters gebruiken de
-opgeslagen selectors op een kale HTTP-fetch.
+gedrag van een bron voorspelbaar. Alleen `browser_listing`,
+`embedded_json` en `discovered_api` doen bij de geplande controle zelf
+ook weer een live aanroep; de andere adapters gebruiken de opgeslagen
+selectors op een kale HTTP-fetch.
+
+### Validatie vóór opslaan
+
+Bij het opslaan van een bron controleert de applicatie automatisch of
+de configuratie klopt, in twee stappen:
+
+1. **Structureel**: is de settings-JSON geldig, en heeft de gekozen
+   adapter de velden die hij sowieso nodig heeft (bv.
+   `selectors.item` bij `html_listing`, `items_path` bij
+   `embedded_json`, `endpoint_url` bij `discovered_api`)? Deze stap is
+   altijd verplicht -- er gaat geen netwerkverkeer aan te pas, dus er
+   is geen reden om 'm ooit over te slaan.
+2. **Live**: voert de daadwerkelijke adapter (`fetch()`+`parse()`) uit
+   tegen de ingevulde instellingen, dezelfde check als "Bron testen"
+   hieronder. Vangt fouten die de structurele check niet ziet, zoals
+   een pad dat er geldig uitziet maar niet naar de juiste plek in de
+   JSON wijst, of een 404 op de opgegeven URL. Draait niet voor elke
+   adapter automatisch:
+   * gewone HTTP-adapters (`generic_links`, `html_listing`,
+     `jsonld_listing`, `microdata_listing`, `discovered_api`,
+     `greenhouse`) -- altijd automatisch, snel en zonder credentials;
+   * `browser_listing`/`embedded_json` -- alleen als je het vinkje
+     "Ook live testen" aanzet, want dit start een headless browser en
+     kost een paar seconden;
+   * `cso_api` -- nooit automatisch, want de benodigde credentials
+     komen uit `.env` en zeggen niets over of DEZE bron goed is
+     ingesteld.
+
+Faalt de live-check, dan wordt het opslaan geblokkeerd met de
+foutmelding erbij -- met een optie "Ik weet dat de live-test nu faalt,
+toch opslaan" voor het geval de doelsite tijdelijk plat ligt. Een
+structurele fout (ongeldige JSON, ontbrekend verplicht veld) heeft
+geen overslaan-optie: dat moet je eerst herstellen.
 
 ### Bron testen
 
@@ -310,13 +274,13 @@ blijft behouden bij Docker-updates.
 
 Getest met Docker Engine, Docker Compose v2, Linux / OpenMediaVault.
 
-De Docker-image bevat sinds kort standaard een headless Chromium
-(via Playwright) -- dit maakt de image aanzienlijk groter (~½-1 GB
-extra) en de eerste build trager dan je misschien gewend bent. Dit is
-een bewuste keuze: "Analyseren" gebruikt die browser om
-JavaScript-afhankelijke vacaturesites correct te herkennen (zie "Wat
-is er nieuw" bovenaan), in plaats van dat je daar zelf pas achter komt
-nadat een aanbevolen adapter live 0 resultaten blijkt te geven.
+De Docker-image bevat standaard een headless Chromium (via
+Playwright) -- dit maakt de image groter (~½-1 GB extra) en de eerste
+build trager dan een kale Python-image. Dit is een bewuste keuze:
+"Analyseren" gebruikt die browser om JavaScript-afhankelijke
+vacaturesites correct te herkennen, in plaats van dat je daar zelf pas
+achter komt nadat een aanbevolen adapter live 0 resultaten blijkt te
+geven.
 
 ## Installatie
 
@@ -336,25 +300,6 @@ docker logs -f vacaturewatcher
 bouwt (zie "Docker image bouwen via GitHub Actions" verderop) -- je
 NAS hoeft dus niet zelf te bouwen. Bouw je liever lokaal (bv. tijdens
 ontwikkelen), zie de `build:`-alternatief in `docker-compose.yml`.
-
-## Bestaande installatie bijwerken naar v2
-
-Als je al vacatures/werkgevers had opgeslagen (v1, of een eerdere
-v2-tussenversie), draai dan **eenmalig** het migratiescript voordat je
-de nieuwe code voor het eerst start. Dit draait BINNEN de container
-(niet op de NAS zelf) -- daar staan de juiste Python-afhankelijkheden
-en wijst `DATABASE_PATH` naar het gekoppelde `data`-volume:
-
-```bash
-docker compose pull
-docker compose up -d
-docker compose exec vacaturewatcher python migrate_v1_to_v2.py
-docker compose restart vacaturewatcher
-```
-
-Dit script is idempotent: het is veilig om het bij elke upgrade
-opnieuw te draaien, het pakt dan alleen de kolommen op die nog
-ontbreken. Nieuwe installaties hebben dit niet nodig.
 
 ---
 
@@ -571,18 +516,13 @@ cp data/vacaturewatcher.db backup.db
 git pull
 docker compose pull
 docker compose up -d
-docker compose exec vacaturewatcher python migrate_v1_to_v2.py
-docker compose restart vacaturewatcher
 ```
 
 `git pull` is hier vooral voor je eigen `.env`/`docker-compose.yml`-
 aanpassingen en dit README-bestand; de daadwerkelijke applicatiecode
 komt via `docker compose pull` binnen (de image die GitHub Actions
 bij de laatste push naar `main` heeft gebouwd, zie "Docker image
-bouwen via GitHub Actions"). De database blijft behouden. Vergeet de
-migratiestap niet -- draai die ná `up -d` (de container met de nieuwe
-code moet al draaien om het script binnenin te kunnen uitvoeren) maar
-vóór je erop vertrouwt dat nieuwe kolommen/functies werken.
+bouwen via GitHub Actions"). De database blijft behouden.
 
 ---
 
@@ -605,24 +545,25 @@ vacaturewatcher/
 │   └── workflows/
 │       └── docker-publish.yml   bouwt + publiceert de image naar ghcr.io bij elke push naar main
 
-├── app.py
+├── app.py                     routes, formulierverwerking, validatie vóór opslaan
 ├── auth.py                    login/logout (Flask-Login)
 ├── config.py
 ├── database.py
 ├── models.py
 
 ├── scraper.py                 kale HTTP-fetch (o.a. raw_fetch_debug, diagnose_source)
-├── browser_analysis.py        gedeelde Playwright-infrastructuur (Analyseren + browser_listing)
-├── adapter_helper.py          Website Detective: _gather_signals / _classify / analyze
+├── browser_analysis.py        gedeelde Playwright-infrastructuur (Analyseren + browser_listing/embedded_json)
+├── adapter_helper.py          orchestrator: alleen analyze()
+├── signal_detection.py        Website Detective: "wat is er te zien" (JSON-LD/microdata/embedded JSON/HTML/pagination)
+├── strategy_selector.py       Website Detective: "wat betekent dat" (_gather_signals/_classify)
+├── diagnostics.py             "Bron testen" / "Ruwe respons bekijken" / Systeem-diagnose
 ├── site_fingerprint.py        cache: onthoudt eerder gedetecteerde adapter per domein
 ├── example_sources.py
-├── vacancy_parser.py         (legacy, vervangen door adapters/generic_links.py)
-├── comparer.py                (legacy, ongebruikt)
 ├── export_import.py           database export/import
 
 ├── adapters/
 │   ├── base.py               gedeelde helpers (settings, keyword-filter, fetch)
-│   ├── registry.py           koppelt adapternamen aan modules + capabilities
+│   ├── registry.py           koppelt adapternamen aan modules + capabilities + validate_settings()
 │   ├── generic_links.py
 │   ├── html_listing.py
 │   ├── jsonld_listing.py
@@ -631,11 +572,11 @@ vacaturewatcher/
 │   ├── cso_api.py
 │   ├── greenhouse.py         Greenhouse Job Board API, automatisch gedetecteerd
 │   ├── discovered_api.py     hergebruikt een via Analyseren ontdekt JSON-endpoint
+│   ├── embedded_json.py      hergebruikt een hydration-payload uit de pagina-bron
 │   └── EXAMPLES.md           configuratievoorbeelden per adapter
 
 ├── notifications.py
 ├── backup.py
-├── migrate_v1_to_v2.py
 
 ├── services/
 │   ├── vacancy_checker.py
@@ -643,14 +584,17 @@ vacaturewatcher/
 │   └── notification_service.py
 
 ├── tests/                    pytest -- zie sectie "Testen" hieronder
-│   ├── test_adapter_helper_classify.py    _classify()-precedentie (incl. discovered_api)
+│   ├── test_strategy_selector.py          _classify()-precedentie (incl. discovered_api/embedded_json)
 │   ├── test_greenhouse_adapter.py
 │   ├── test_source_scheduling.py
 │   ├── test_html_listing_link_attr.py     onclick-widgets (bv. Werken bij Wassenaar)
 │   ├── test_raw_fetch_debug.py            "Ruwe respons bekijken"
 │   ├── test_browser_analysis.py           Playwright-navigatie (gemockt)
 │   ├── test_browser_analysis_requests.py  netwerkverkeer-opvang tijdens analyse (gemockt)
-│   └── test_discovered_api.py
+│   ├── test_embedded_json.py              detectie van hydration-payloads (Next.js/Nuxt)
+│   ├── test_embedded_json_adapter.py      adapters/embedded_json.py (fetch/parse)
+│   ├── test_discovered_api.py
+│   └── test_source_validation.py          validatie vóór opslaan (structureel + live)
 
 ├── templates/
 ├── static/
@@ -670,14 +614,15 @@ vacaturewatcher/
 
 # Testen
 
-Het project heeft een `pytest`-testsuite (89 tests) voor de
-detectielogica van de Adapter Helper (inclusief de
-`discovered_api`-precedentie), de Greenhouse-adapter, de
-weekdag-planning, de `onclick`-widget-ondersteuning in
-`html_listing` (zie Werken bij Wassenaar), "Ruwe respons bekijken",
-en de Playwright-aansturing in `browser_analysis.py`. Alleen nodig
-voor ontwikkeling, niet voor gewoon gebruik -- de Docker-image bevat
-`pytest` niet.
+Het project heeft een `pytest`-testsuite (149 tests) voor de
+detectielogica van de Adapter Helper (inclusief de `discovered_api`-
+en `embedded_json`-precedentie), de adapters zelf, de weekdag-
+planning, de `onclick`-widget-ondersteuning in `html_listing` (zie
+Werken bij Wassenaar), "Ruwe respons bekijken", de Playwright-
+aansturing in `browser_analysis.py`, en de validatie vóór opslaan
+(structureel + live, inclusief de always/opt_in/skip-policy per
+adapter). Alleen nodig voor ontwikkeling, niet voor gewoon gebruik --
+de Docker-image bevat `pytest` niet.
 
 Belangrijk: **geen echte browser/Chromium nodig** om de testsuite te
 draaien -- alle Playwright-gerelateerde tests gebruiken gemockte
@@ -705,6 +650,7 @@ docker compose exec vacaturewatcher pytest tests/ -v
 * SQLite + SQLAlchemy
 * APScheduler
 * BeautifulSoup (`lxml`-parser)
+* Playwright (headless Chromium, voor Analyseren/`browser_listing`/`embedded_json`)
 * Docker
 
 ---
@@ -712,11 +658,10 @@ docker compose exec vacaturewatcher pytest tests/ -v
 # Beperkingen
 
 * Sommige vacaturepagina's laden inhoud via JavaScript; "Analyseren"
-  herkent dit inmiddels vanzelf (gebruikt altijd een echte browser),
-  maar voor de geplande controles moet je zelf nog `browser_listing`
-  kiezen -- geen losse installatiestap meer nodig, wel zwaarder qua
-  resources (een echte browserpagina per controle) dan de andere
-  adapters.
+  herkent dit automatisch (gebruikt altijd een echte browser), maar
+  voor de geplande controles moet je zelf nog `browser_listing` of
+  `embedded_json` kiezen -- zwaarder qua resources (een echte
+  browserpagina per controle) dan de andere adapters.
 * Sommige websites blokkeren geautomatiseerde toegang (robots.txt) of
   verbieden scraping in hun voorwaarden -- controleer dit zelf per
   site voordat je een bron toevoegt (de applicatie checkt dit op dit
@@ -730,11 +675,12 @@ docker compose exec vacaturewatcher pytest tests/ -v
   aangevinkt), dit gebeurt niet automatisch.
 * `check_interval` = Wekelijks betekent altijd "op maandag", ongeacht
   de gekozen Controledagen -- zie de noot bij "Eerste bron toevoegen".
-* `discovered_api` gebruikt een ONOFFICIEEL, intern JSON-endpoint van
-  de website zelf (geen gedocumenteerde publieke API) -- dit kan
-  zonder aankondiging veranderen. Test na het instellen altijd met
-  "Bron testen", en houd er rekening mee dat dit vaker onderhoud kan
-  vragen dan `cso_api`/`greenhouse`.
+* `discovered_api` en `embedded_json` gebruiken een ONOFFICIEEL,
+  intern JSON-endpoint respectievelijk een hydration-payload van de
+  website zelf (geen gedocumenteerde publieke API) -- dit kan zonder
+  aankondiging veranderen. Test na het instellen altijd met "Bron
+  testen", en houd er rekening mee dat dit vaker onderhoud kan vragen
+  dan `cso_api`/`greenhouse`.
 * `cso_api` extraheert nog geen locatie/datum (de API levert dit wel,
   maar het exacte veldpad is nog niet geverifieerd -- zie de
   toelichting in `adapters/cso_api.py`).
@@ -756,44 +702,23 @@ Mogelijke toekomstige uitbreidingen:
 * [ ] `settings.categories` daadwerkelijk toepassen op sites die dat
       ondersteunen (nu alleen informatief veld)
 * [ ] RSS-adapter
-* [x] Browser automation voor JavaScript-zware pagina's
-      (`adapters/browser_listing.py`, standaard onderdeel van de
-      Docker-image via `browser_analysis.py`)
-* [x] "Analyseren" gebruikt altijd een echte (headless) browser, zodat
-      JavaScript-afhankelijke sites al bij analyse correct herkend
-      worden i.p.v. pas na een verkeerde aanbeveling te ontdekken
-      (zie "Wat is er nieuw" bovenaan)
-* [x] Netwerkverkeer tijdens analyse opslaan/doorzoeken
-      (`browser_analysis.py`, "Ontdekt netwerkverkeer tijdens het
-      laden" op de bronpagina) + adapter `discovered_api` om zo'n
-      gevonden JSON-endpoint te hergebruiken voor de geplande
-      controles (handmatig via "Gebruik deze API" -- automatische
-      herkenning/voorrang in `_classify()` is een logische
-      vervolgstap, zie hieronder)
-* [x] `_classify()` uitgebreid zodat een ontdekt JSON-endpoint dat
-      duidelijk op een vacaturelijst lijkt automatisch wordt
-      voorgesteld als `discovered_api`, ná de kant-en-klare opties
-      (greenhouse/jsonld/microdata) maar vóór de HTML-heuristieken --
-      "Gebruik deze instellingen" werkt hier meteen via de bestaande,
-      generieke knop-infrastructuur
-* [ ] `browser_listing`: detailpagina-modus (mode "detail", zoals
-      jsonld_listing/microdata_listing al hebben)
-* [x] Geautomatiseerde testsuite (pytest) -- `tests/`, tests voor
-      de Adapter Helper-classificatie, de Greenhouse-adapter en de
-      weekdag-planning
-* [x] Chronologisch vacature-overzicht (datum -- vacature -- bron)
-      over alle bronnen heen, als aanvulling op het bestaande
-      per-bron overzicht -- **Tijdlijn** (`/vacatures/tijdlijn`)
+* [ ] `browser_listing`/`embedded_json`: detailpagina-modus (mode
+      "detail", zoals `jsonld_listing`/`microdata_listing` al hebben)
 * [ ] Tweede platform-adapter (bv. Workday) bovenop de
       fingerprint-aanpak uit `greenhouse.py`
+* [ ] `generic_links` positioneren als allerlaatste redmiddel in de
+      detectie-precedentie (staat nu op gelijke voet met de andere
+      fallbacks)
+* [ ] `browser_listing` herontwerpen als losse fetch-strategie
+      (herbruikbaar door andere adapters) in plaats van een eigen
+      adapter -- architecturaal zuiverder, maar raakt de
+      schema-/UI-laag
 * [ ] Robots.txt-check inbouwen in `scraper.fetch_html()`
 * [ ] CSRF-bescherming (Flask-WTF)
-* [ ] Overstap naar Flask-Migrate/Alembic i.p.v. handmatige
-      migratiescripts
+* [ ] Overstap naar Flask-Migrate/Alembic voor toekomstige
+      schema-wijzigingen
 * [ ] Meerdere gebruikers
 * [ ] API voor externe integraties
-* [x] Docker image publiceren -- `.github/workflows/docker-publish.yml`,
-      automatisch naar `ghcr.io` bij elke push naar `main`
 
 ---
 

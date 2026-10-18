@@ -61,7 +61,32 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "always",
+    # Gewone HTTP-fetch naar endpoint_url, geen browser/credentials
+    # nodig -- veilig om automatisch te testen bij opslaan. Dit vangt
+    # ook precies het meest voorkomende foutgeval: een leeg field_map
+    # dat nog niet is ingevuld na "Gebruik deze API" (zie
+    # settings_from_discovered_request() hieronder).
 }
+
+
+def validate_settings(settings, url):
+    """
+    Structurele check vóór opslaan: alleen endpoint_url is hard
+    vereist. field_map bewust NIET hier gecontroleerd op
+    aanwezige/niet-lege title/url -- een leeg field_map is geldige,
+    op-zichzelf-consistente JSON (zie settings_from_discovered_request()
+    hierboven), en de live-validatie (diagnostics.test_source(), zie
+    app.py) geeft daar al een duidelijke, concrete foutmelding voor
+    zodra 'm daadwerkelijk uitgevoerd wordt -- dat is preciezer dan
+    hier al vooraf te gokken welke velden "leeg genoeg" zijn om af te
+    keuren.
+    """
+
+    if not settings.get("endpoint_url"):
+        return "settings.endpoint_url ontbreekt (verplicht voor deze adapter)."
+
+    return None
 
 
 def settings_from_discovered_request(candidate):
@@ -75,7 +100,7 @@ def settings_from_discovered_request(candidate):
     voorstel-vorm opleveren:
     - app.py's "Gebruik deze API"-knop (handmatige keuze door de
       gebruiker, elke kandidaat)
-    - adapter_helper._classify()/analyze() (automatische aanbeveling,
+    - strategy_selector._classify()/adapter_helper.analyze() (automatische aanbeveling,
       alleen de sterkste kandidaat)
     """
 

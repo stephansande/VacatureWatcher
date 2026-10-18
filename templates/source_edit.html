@@ -16,9 +16,22 @@
 
 
 {% if error %}
+<div class="result-box status-error">
 <p style="color: #b91c1c;">
 {{ error }}
 </p>
+{% if live_validation_failed %}
+<p class="muted">
+Dit is de uitkomst van een live-test tegen de daadwerkelijke bron
+(dezelfde als "Bron testen") -- de instellingen zelf zien er
+structureel geldig uit. Dit kan een tijdelijk probleem aan de kant van
+de doelsite zijn (site plat, netwerkstoring), of een echte fout in de
+instellingen. Vink hieronder aan als je toch wilt opslaan (bv. omdat
+je weet dat de site zo weer online is), en klik nogmaals op "Bron
+opslaan" -- het vinkje staat verderop in het formulier.
+</p>
+{% endif %}
+</div>
 {% endif %}
 
 
@@ -32,6 +45,15 @@
 <form method="post" id="source-form">
 
 <input type="hidden" name="analysis_json" value='{{ analysis | tojson if analysis else "" }}'>
+
+{% if live_validation_failed %}
+<div class="result-box status-error">
+<label>
+<input type="checkbox" name="confirm_save_despite_error" value="1">
+Ik weet dat de live-test hierboven nu faalt, toch opslaan
+</label>
+</div>
+{% endif %}
 
 
 {% if is_new and examples %}
@@ -440,11 +462,59 @@ opslaat.
 {% endif %}
 
 
+{% if analysis.embedded_json %}
+
+<div class="result-box {% if analysis.recommendation == 'embedded_json' %}recommended{% endif %}">
+<h4>
+7. Embedded JSON in de pagina-bron gevonden &mdash; adapter <code>embedded_json</code>
+<span class="badge badge-jobboard">{{ analysis.embedded_json.framework }}</span>
+{% if analysis.recommendation == 'embedded_json' %}<span class="badge badge-jobboard">Aanbevolen</span>{% endif %}
+</h4>
+<p class="muted">
+Deze pagina laadt een data-blob rechtstreeks mee in de eerste HTML
+(geen aparte netwerkaanroep nodig, in tegenstelling tot "Ontdekt
+netwerkverkeer" hierboven) -- gevonden op pad
+<code>{{ analysis.embedded_json.path | join('.') }}</code>, met
+{{ analysis.embedded_json.count }} item(s):
+</p>
+<ul>
+{% for title in analysis.embedded_json.preview %}
+<li>{{ title }}</li>
+{% endfor %}
+</ul>
+{% if analysis.recommendation == 'embedded_json' %}
+{% if analysis.recommended_settings %}
+<pre>{{ analysis.recommended_settings | tojson(indent=2) }}</pre>
+{% endif %}
+<button class="button" type="submit" name="action" value="apply:embedded_json">
+Gebruik deze instellingen
+</button>
+<p class="muted">
+Vult <code>items_path</code> in (het pad hierboven).
+<code>field_map</code> blijft LEEG -- bepaal zelf aan de hand van de
+titels hierboven (of "Ruwe respons bekijken") welke JSON-sleutel bij
+titel/url/locatie hoort, vóór je opslaat. Bij elke geplande controle
+wordt de pagina opnieuw gerenderd om bij deze payload te komen --
+gebruikt dus wel een browser, net als <code>browser_listing</code>.
+</p>
+{% else %}
+<p class="muted">
+Op deze pagina wint een andere, kant-en-klaardere methode hierboven --
+kies handmatig <code>embedded_json</code> als adapter (en vul
+<code>items_path</code>/<code>field_map</code> zelf in aan de hand van
+het pad en de items hierboven) als je toch liever deze route gebruikt.
+</p>
+{% endif %}
+</div>
+
+{% endif %}
+
+
 {% if analysis.js_rendering_hint %}
 
 <div class="result-box status-error">
 <h4>
-7. Geen van bovenstaande gevonden
+8. Geen van bovenstaande gevonden
 </h4>
 <p>
 {{ analysis.js_rendering_hint }}
@@ -496,6 +566,7 @@ Adapter
 <option value="cso_api" {% if form.adapter == "cso_api" %}selected{% endif %}>cso_api</option>
 <option value="greenhouse" {% if form.adapter == "greenhouse" %}selected{% endif %}>greenhouse</option>
 <option value="discovered_api" {% if form.adapter == "discovered_api" %}selected{% endif %}>discovered_api</option>
+<option value="embedded_json" {% if form.adapter == "embedded_json" %}selected{% endif %}>embedded_json</option>
 </select>
 
 <p class="muted">
@@ -593,6 +664,36 @@ aangevinkt telt als "alle dagen".
 </p>
 
 <br><br><br>
+
+
+{% if adapter_capabilities.live_validation == "opt_in" %}
+<label>
+<input type="checkbox" name="live_test" value="1" {% if form.live_test %}checked{% endif %}>
+Ook live testen vóór opslaan (start een headless browser, kan een paar
+seconden duren)
+</label>
+<p class="muted">
+Deze adapter (<code>{{ form.adapter }}</code>) rendert de pagina met
+een browser -- te traag om automatisch bij elke opslag te draaien.
+Zonder dit vinkje wordt alleen gecontroleerd of de instellingen er
+structureel geldig uitzien; test daarna zelf met "Bron testen".
+</p>
+<br>
+{% elif adapter_capabilities.live_validation == "skip" %}
+<p class="muted">
+Deze adapter (<code>{{ form.adapter }}</code>) hangt af van
+omgevingsconfiguratie (bv. API-credentials) die hier niet gecontroleerd
+kan worden -- alleen de structurele instellingen worden bij opslaan
+gecontroleerd. Test daarna zelf met "Bron testen".
+</p>
+<br>
+{% else %}
+<p class="muted">
+Bij opslaan wordt automatisch een live-test uitgevoerd (dezelfde als
+"Bron testen") vóórdat de bron daadwerkelijk wordt opgeslagen.
+</p>
+<br>
+{% endif %}
 
 
 <button class="button" type="submit" name="action" value="save">

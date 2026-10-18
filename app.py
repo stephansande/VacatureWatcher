@@ -1,5 +1,7 @@
 import json
 
+from types import SimpleNamespace
+
 from flask import (
     Flask,
     render_template,
@@ -9,7 +11,6 @@ from flask import (
 )
 
 from flask_login import (
-    LoginManager,
     login_required
 )
 
@@ -38,10 +39,11 @@ from services.vacancy_checker import (
 from adapters import registry as adapter_registry
 
 from adapter_helper import analyze as run_adapter_helper
-from adapter_helper import test_source as run_source_test
-from adapter_helper import diagnose_source
-from adapter_helper import raw_fetch_debug
+from diagnostics import test_source as run_source_test
+from diagnostics import diagnose_source
+from diagnostics import raw_fetch_debug
 from adapters import discovered_api
+from adapters.base import AdapterError
 
 from example_sources import EXAMPLE_SOURCES, get_example
 
@@ -163,43 +165,131 @@ def _apply_discovered_api(action, analysis, form_data):
 
 
 
-def _validate_settings(adapter_name, settings_text):
+TEST_SOURCE_PREVIEW_LIMIT = 5
+# Zelfde beperking als diagnostics.TEST_PREVIEW_LIMIT -- een live
+# pre-save-check hoeft geen volledige scrape te doen, alleen genoeg om
+# te weten of fetch()+parse() daadwerkelijk werkt.
+
+
+def _parse_settings_json(settings_text):
     """
-    Lichte validatie bij het opslaan van een bron, zodat een kapotte
-    configuratie meteen zichtbaar is in plaats van pas bij de eerste
-    (mislukte) geplande controle. Geeft een foutmelding terug, of None
-    als alles in orde is.
+    Parseert het settings-tekstveld naar een dict, of geeft een
+    foutmelding terug bij ongeldige JSON. Gedeeld door
+    _validate_settings() en _maybe_run_live_validation() zodat een
+    kapotte JSON maar op één plek als "geen geldige JSON"-fout
+    herkend wordt.
     """
 
     if not settings_text or not settings_text.strip():
         # settings is optioneel voor de meeste adapters (bv. cso_api,
         # of html_listing/jsonld/microdata die op source.url terugvallen
-        # als start_url ontbreekt) -- alleen html_listing/browser_listing
-        # kunnen zonder selectors niets, dat vangen we hieronder af.
-        settings_dict = {}
-    else:
-        try:
-            settings_dict = json.loads(settings_text)
-        except (ValueError, TypeError) as error:
-            return f"Settings is geen geldige JSON: {error}"
+        # als start_url ontbreekt).
+        return {}, None
 
-        if not isinstance(settings_dict, dict):
-            return "Settings moet een JSON-object zijn (bv. {\"start_url\": \"...\"})."
+    try:
+        settings_dict = json.loads(settings_text)
+    except (ValueError, TypeError) as error:
+        return None, f"Settings is geen geldige JSON: {error}"
 
-    if adapter_name in ("html_listing", "browser_listing"):
+    if not isinstance(settings_dict, dict):
+        return None, "Settings moet een JSON-object zijn (bv. {\"start_url\": \"...\"})."
 
-        if adapter_name == "browser_listing" and settings_dict.get("parse_as", "html_listing") != "html_listing":
-            return None
+    return settings_dict, None
 
-        selectors = settings_dict.get("selectors", {})
 
-        if not selectors.get("item"):
-            return "settings.selectors.item ontbreekt (verplicht voor deze adapter)."
+def _validate_settings(adapter_name, settings_text, url):
+    """
+    STRUCTURELE validatie bij het opslaan van een bron: is de settings-
+    JSON geldig, en heeft de gekozen adapter de velden die hij
+    sowieso nodig heeft (zie adapters/registry.validate_settings() en
+    de validate_settings()-functie van de adapter zelf)? Dit is de
+    HARDE, niet-overslaanbare stap -- geen netwerk nodig, dus geen
+    reden om ooit een save tegen te houden op basis van bv. een
+    trage/onbereikbare site. Geeft een foutmelding terug, of None als
+    alles in orde is.
 
-        if not selectors.get("title") and not selectors.get("link"):
-            return "settings.selectors.title of settings.selectors.link ontbreekt (minstens één is verplicht)."
+    Dit is stap 1 van de validator uit de roadmap; stap 2 is de LIVE
+    check in _maybe_run_live_validation() hieronder, die pas draait
+    als deze structurele check al geslaagd is.
+    """
 
-    return None
+    settings_dict, error = _parse_settings_json(settings_text)
+
+    if error:
+        return error
+
+    try:
+        return adapter_registry.validate_settings(adapter_name, settings_dict, url)
+    except AdapterError as error:
+        # Onbekende adapternaam (bv. via een handmatig aangepast
+        # formulier) -- dezelfde soort foutmelding als de rest van
+        # deze functie, i.p.v. een kale stacktrace.
+        return str(error)
+
+
+def _maybe_run_live_validation(adapter_name, url, settings_text, live_test_requested):
+    """
+    LIVE validatie: voert de daadwerkelijke fetch()+parse() van de
+    gekozen adapter uit tegen de (nog niet opgeslagen) ingevulde
+    instellingen, via diagnostics.test_source() -- exact dezelfde
+    functie als achter de "Bron testen"-knop, dus geen aparte
+    testpijplijn om uit de pas te laten lopen. Dit vangt fouten die
+    een structurele check niet kan zien: een settings.items_path dat
+    er geldig uitziet maar niet naar een array wijst, een 404 op de
+    endpoint_url, een CSS-selector die niets meer matcht sinds een
+    redesign, etc.
+
+    Draait alleen als _validate_settings() hierboven al is geslaagd
+    (geen zin om een kapotte pagina op te halen voor settings die
+    toch al ongeldig zijn), en alleen als het adapter-type dat
+    volgens zijn CAPABILITIES["live_validation"] toestaat:
+
+    - "always"  -- gewone HTTP-adapters (generic_links, html_listing,
+                   jsonld/microdata_listing, discovered_api,
+                   greenhouse): snel, geen credentials nodig, dus
+                   automatisch bij elke opslag.
+    - "opt_in"  -- browser-adapters (browser_listing, embedded_json):
+                   starten een headless Chromium, dat kost een paar
+                   seconden en is niet overal beschikbaar -- draait
+                   dus ALLEEN als de gebruiker het vinkje "Ook live
+                   testen" aanzet (zie source_edit.html).
+    - "skip"    -- adapters die van omgevingsconfiguratie buiten
+                   Source.settings om afhangen (cso_api's
+                   CSO_USERNAME/CSO_PASSWORD): ontbrekende
+                   credentials in bv. een dev-omgeving zeggen niets
+                   over of DEZE bron goed is ingesteld, dus nooit
+                   automatisch.
+
+    Geeft de foutmelding van test_source() terug (of None bij succes
+    of een bewust overgeslagen check) -- dit blokkeert het opslaan
+    NIET zelf; dat beslist de aanroeper in _render_source_editor(),
+    die de gebruiker ook de kans geeft om dit te negeren ("Toch
+    opslaan").
+    """
+
+    capabilities = adapter_registry.get_capabilities(adapter_name)
+    live_policy = capabilities.get("live_validation", "always")
+
+    if live_policy == "skip":
+        return None
+
+    if live_policy == "opt_in" and not live_test_requested:
+        return None
+
+    temp_source = SimpleNamespace(
+        id=None,
+        name="(nog niet opgeslagen)",
+        url=url,
+        adapter=adapter_name,
+        settings=settings_text or None,
+        keywords=None,
+    )
+
+    result = run_source_test(temp_source, limit=TEST_SOURCE_PREVIEW_LIMIT)
+
+    return result["error"]
+
+
 
 
 
@@ -223,6 +313,7 @@ def _render_source_editor(source=None):
             "keywords": "",
             "check_interval": "daily",
             "check_days": list(ALL_WEEKDAYS),
+            "live_test": False,
         }
     else:
         form_data = {
@@ -234,11 +325,13 @@ def _render_source_editor(source=None):
             "keywords": source.keywords or "",
             "check_interval": source.check_interval,
             "check_days": source.check_days_list,
+            "live_test": False,
         }
 
     analysis = None
     error = None
     info = None
+    live_validation_failed = False
 
     if request.method == "POST":
 
@@ -257,6 +350,12 @@ def _render_source_editor(source=None):
         # zodat een gebruiker een bron niet per ongeluk stilletjes
         # helemaal uitzet door alle vinkjes weg te halen -- zie ook
         # Source.check_days_list-setter in models.py.
+        form_data["live_test"] = request.form.get("live_test") == "1"
+        # Alleen relevant voor adapters met CAPABILITIES["live_validation"]
+        # == "opt_in" (browser_listing, embedded_json) -- zie
+        # _maybe_run_live_validation(). Onthouden in form_data zodat het
+        # vinkje blijft staan als de pagina opnieuw gerenderd wordt (bv.
+        # na een validatiefout).
 
         analysis = _load_analysis_from_form()
 
@@ -297,7 +396,38 @@ def _render_source_editor(source=None):
 
             else:
 
-                error = _validate_settings(form_data["adapter"], form_data["settings"])
+                error = _validate_settings(
+                    form_data["adapter"], form_data["settings"], form_data["url"]
+                )
+
+            if not error:
+
+                confirm_despite_error = request.form.get("confirm_save_despite_error") == "1"
+
+                if not confirm_despite_error:
+                    # Alleen de duurdere live-check draaien als de
+                    # gebruiker 'm niet al bewust overrulet -- anders
+                    # zou "Toch opslaan" zelf weer een onnodige extra
+                    # request naar de doelsite triggeren.
+                    live_check_error = _maybe_run_live_validation(
+                        form_data["adapter"],
+                        form_data["url"],
+                        form_data["settings"],
+                        form_data["live_test"],
+                    )
+
+                    if live_check_error:
+                        # Zachte blokkade: de structurele instellingen
+                        # zijn geldig, maar fetch()+parse() faalde
+                        # daadwerkelijk tegen de live site. Anders dan
+                        # een structurele fout (ongeldige JSON,
+                        # ontbrekend verplicht veld) kan dit ook een
+                        # tijdelijk probleem aan de kant van de
+                        # doelsite zijn -- vandaar de
+                        # "Toch opslaan"-optie in source_edit.html
+                        # i.p.v. een harde blokkade.
+                        error = live_check_error
+                        live_validation_failed = True
 
             if not error:
 
@@ -343,6 +473,8 @@ def _render_source_editor(source=None):
         is_new=is_new,
         examples=EXAMPLE_SOURCES,
         all_weekdays=ALL_WEEKDAYS,
+        live_validation_failed=live_validation_failed,
+        adapter_capabilities=adapter_registry.get_capabilities(form_data["adapter"]),
     )
 
 

@@ -59,6 +59,13 @@ CAPABILITIES = {
     "supports_dates": False,
     "supports_location": False,
     "requires_credentials": True,
+    "live_validation": "skip",
+    # Vereist CSO_USERNAME/CSO_PASSWORD uit de omgeving (.env), niet
+    # uit Source.settings -- of die credentials ontbreken zegt niets
+    # over of DEZE bron correct is ingesteld, en in een dev-omgeving
+    # zonder CSO-account zou automatische live-validatie bij opslaan
+    # dus elke keer onterecht falen. Test dit handmatig via "Bron
+    # testen" op een omgeving waar de credentials wél staan.
 }
 
 

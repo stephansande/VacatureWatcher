@@ -443,7 +443,7 @@ def _looks_like_job_list(body):
     niveau verstopt in een wrapper-object zoals {"results": [...]})
     waarvan de sleutels herkenbare namen bevatten. Puur signaal voor de
     mens die de analyse bekijkt -- net als "looks_blocked" in
-    adapter_helper.raw_fetch_debug(). Nog GEEN onderdeel van de
+    diagnostics.raw_fetch_debug(). Nog GEEN onderdeel van de
     automatische classificatie (_classify()) -- dat is voor een latere
     stap.
     """

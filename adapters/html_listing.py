@@ -110,7 +110,33 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "always",
+    # Gewone HTTP-fetch, geen browser/credentials nodig -- veilig om
+    # bij elke opslag automatisch live te testen (zie
+    # app.py._maybe_run_live_validation()).
 }
+
+
+def validate_settings(settings, url):
+    """
+    Structurele check vóór opslaan (zie adapters/registry.py's
+    validate_settings() voor het aanroeppatroon): "selectors.item" is
+    altijd verplicht, plus minstens één van "selectors.title"/"link".
+    Zelfde regels als voorheen inline in app.py._validate_settings()
+    stonden -- hierheen verplaatst zodat de adapter zijn eigen
+    vereisten kent, i.p.v. dat app.py per adapter moet weten wat
+    verplicht is.
+    """
+
+    selectors = settings.get("selectors") or {}
+
+    if not selectors.get("item"):
+        return "settings.selectors.item ontbreekt (verplicht voor deze adapter)."
+
+    if not selectors.get("title") and not selectors.get("link"):
+        return "settings.selectors.title of settings.selectors.link ontbreekt (minstens één is verplicht)."
+
+    return None
 
 
 def fetch(source):

@@ -36,7 +36,7 @@ MAX_TITLE_LENGTH = 120
 # verder"-kaart die toevallig naar een URL met "...-functies" erin
 # wijst) worden anders onterecht als vacature aangemerkt zodra het
 # keyword toevallig ergens in de URL voorkomt. Zie ook
-# adapter_helper._looks_like_vacancy_link, die dezelfde grens hanteert.
+# signal_detection._looks_like_vacancy_link, die dezelfde grens hanteert.
 
 
 CAPABILITIES = {
@@ -47,6 +47,7 @@ CAPABILITIES = {
     "supports_dates": False,
     "supports_location": False,
     "requires_credentials": False,
+    "live_validation": "always",
 }
 
 

@@ -1,14 +1,14 @@
 """
 Adapter: browser_listing
 
-LET OP -- de onderliggende Playwright-aansturing (browser_analysis.py)
-is inmiddels wel met mocks getest (zie tests/test_browser_analysis.py
-en de manier waarop adapter_helper.analyze() 'm nu ook gebruikt), maar
-een ECHTE headless-browserrun tegen een live JavaScript-site is in
-mijn sandbox nog steeds niet mogelijk (geen browser-binary te
-installeren zonder netwerktoegang tot npm/playwright's CDN). Test dit
-dus altijd zelf grondig (bv. via "Bron testen") voordat je 'm op een
-bron inschakelt die je vertrouwt.
+De onderliggende Playwright-aansturing (browser_analysis.py) is zowel
+met mocks getest (tests/test_browser_analysis*.py) als, tijdens
+ontwikkeling, één keer echt met een werkende headless Chromium tegen
+een lokale testserver (inclusief JS-vertraagde content en een
+cookiebanner) -- zie de patch-notities uit die sessie. Test een
+nieuwe bron er desondanks altijd zelf grondig mee (bv. via "Bron
+testen") voordat je erop vertrouwt: elke website is anders, en dit is
+geen garantie dat elke site even goed werkt.
 
 Voor sites die vacaturedata pas via JavaScript inladen (zoals we bij
 Werken bij Wassenaar tegenkwamen: geen enkele <a href> in de statische
@@ -54,22 +54,6 @@ binnen 5 seconden gevonden (bv. omdat er geen banner is), dan gaat de
 adapter gewoon door -- geen harde fout.
 """
 
-from adapters import html_listing
-from adapters import jsonld_listing
-from adapters import microdata_listing
-from adapters.base import load_settings, polite_sleep, AdapterError
-
-
-CAPABILITIES = {
-    "label": "Headless browser (Playwright) -- voor JavaScript-sites",
-    "supports_pagination": True,
-    "supports_categories": False,
-    "supports_detail_pages": False,
-    "supports_dates": True,
-    "supports_location": True,
-    "requires_credentials": False,
-}
-
 import browser_analysis
 
 from adapters import html_listing
@@ -86,7 +70,37 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "opt_in",
+    # Start een echte headless Chromium -- kost een paar seconden en
+    # is niet in elke omgeving beschikbaar (zie
+    # browser_analysis.BrowserUnavailableError). Te traag/onzeker om
+    # bij ELKE opslag automatisch te draaien; de gebruiker moet het
+    # expliciet aanvinken (zie source_edit.html en
+    # app.py._maybe_run_live_validation()).
 }
+
+
+def validate_settings(settings, url):
+    """
+    "parse_as" bepaalt welke onderliggende parse-logica hergebruikt
+    wordt (zie parse() hieronder) -- alleen bij "html_listing" (de
+    standaard) is er ook nog een CSS-selector-vereiste, dus dat
+    delegeren we naar html_listing.validate_settings() zelf i.p.v. het
+    hier te dupliceren.
+    """
+
+    parse_as = settings.get("parse_as", "html_listing")
+
+    if parse_as not in ("html_listing", "jsonld_listing", "microdata_listing"):
+        return (
+            f"settings.parse_as '{parse_as}' is onbekend (verwacht "
+            f"'html_listing', 'jsonld_listing' of 'microdata_listing')."
+        )
+
+    if parse_as == "html_listing":
+        return html_listing.validate_settings(settings, url)
+
+    return None
 
 
 def fetch(source):

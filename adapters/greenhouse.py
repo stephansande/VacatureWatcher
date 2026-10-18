@@ -29,7 +29,7 @@ derive_board_token() -- werkt alleen als Source.url zelf op
 boards.greenhouse.io draait. Bij een embed op een eigen domein moet
 board_token dus altijd expliciet in settings staan.
 
-Wordt automatisch aanbevolen door de Adapter Helper (adapter_helper._classify)
+Wordt automatisch aanbevolen door de Adapter Helper (strategy_selector._classify)
 zodra een pagina een script van greenhouse.io laadt of de bron-URL
 zelf op boards.greenhouse.io staat, zie matches_fingerprint()
 hieronder -- dit is een harde fingerprint-match, geen heuristische
@@ -61,7 +61,30 @@ CAPABILITIES = {
     "supports_dates": True,
     "supports_location": True,
     "requires_credentials": False,
+    "live_validation": "always",
+    # Publieke, ongeauthenticeerde API -- veilig om automatisch te
+    # testen bij opslaan.
 }
+
+
+def validate_settings(settings, url):
+    """
+    Structurele check vóór opslaan: board_token moet ofwel expliciet
+    in settings staan, ofwel afleidbaar zijn uit de bron-URL (zelfde
+    fallback als fetch() hieronder gebruikt) -- anders faalt elke
+    geplande controle gegarandeerd, zie de AdapterError in fetch().
+    """
+
+    board_token = settings.get("board_token") or derive_board_token(url or "")
+
+    if not board_token:
+        return (
+            "settings.board_token ontbreekt en kon niet automatisch "
+            "afgeleid worden uit de URL (alleen mogelijk als de URL zelf "
+            "op boards.greenhouse.io draait) -- vul 'm handmatig in."
+        )
+
+    return None
 
 
 def fetch(source):
@@ -163,7 +186,7 @@ def matches_fingerprint(url, script_domains):
     embed-widget-scenario: een werkgever toont Greenhouse-vacatures op
     zijn EIGEN "werken bij"-domein via een <script>-embed).
 
-    Gebruikt door adapter_helper._classify() als eerste, harde check
+    Gebruikt door strategy_selector._classify() als eerste, harde check
     vóór de bestaande jsonld/microdata/html_listing/generic_links-
     precedentie -- een fingerprint-match is geen gok en hoeft dus niet
     te wachten tot de zwakkere heuristieken hun beurt krijgen.
